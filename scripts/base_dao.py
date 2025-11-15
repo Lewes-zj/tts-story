@@ -1,5 +1,4 @@
-"""
-基础数据访问对象
+"""基础数据访问对象
 提供数据库配置加载和连接管理的基类
 """
 
@@ -23,6 +22,13 @@ class BaseDAO:
         Args:
             config_path (str): 数据库配置文件路径
         """
+        # 使用项目根目录定位方法获取配置文件的绝对路径
+        if not os.path.isabs(config_path):
+            # 获取项目根目录
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # 构建配置文件的绝对路径
+            config_path = os.path.join(project_root, config_path)
+
         # 如果配置路径不同，或者配置尚未加载，则加载配置
         if BaseDAO._config_path != config_path or BaseDAO._db_config is None:
             BaseDAO._config_path = config_path
@@ -38,7 +44,14 @@ class BaseDAO:
             dict: 数据库配置信息
         """
         # 确保_config_path不为None
-        config_path = BaseDAO._config_path or "config/database.yaml"
+        if BaseDAO._config_path is None:
+            # 获取项目根目录
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # 构建配置文件的绝对路径
+            config_path = os.path.join(project_root, "config/database.yaml")
+        else:
+            config_path = BaseDAO._config_path
+
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         return config["mysql"]

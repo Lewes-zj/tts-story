@@ -10,15 +10,16 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.emo_vector_processor import EmoVectorProcessor
 
+
 def test_emo_vector_processor():
     """测试情绪向量处理器"""
     # 创建处理器实例
     processor = EmoVectorProcessor()
-    
+
     # 测试数据
     input_audio = "/path/to/input/audio.wav"
     text = "这是一个测试文本"
-    
+
     # 处理情绪向量
     try:
         result_list = processor.process_emo_vectors(input_audio, text)
@@ -35,6 +36,7 @@ def test_emo_vector_processor():
             print()
     except Exception as e:
         print(f"处理过程中发生错误: {e}")
+
 
 if __name__ == "__main__":
     test_emo_vector_processor()

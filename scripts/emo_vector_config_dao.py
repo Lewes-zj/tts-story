@@ -1,5 +1,4 @@
-"""
-情绪向量配置数据访问对象
+"""情绪向量配置数据访问对象
 专门处理emo_vector_config表的数据库操作
 """
 
@@ -11,14 +10,17 @@ from scripts.base_dao import BaseDAO
 class EmoVectorConfigDAO(BaseDAO):
     """情绪向量配置数据访问对象"""
 
-    def __init__(self, config_path="config/database.yaml"):
+    def __init__(self, config_path=None):
         """
         初始化情绪向量配置DAO
 
         Args:
-            config_path (str): 数据库配置文件路径
+            config_path (str, optional): 数据库配置文件路径，默认使用BaseDAO的默认路径
         """
-        super().__init__(config_path)
+        if config_path:
+            super().__init__(config_path)
+        else:
+            super().__init__()  # 使用BaseDAO的默认路径
 
     def fetch_all_configs(self) -> List[Dict[str, Any]]:
         """
