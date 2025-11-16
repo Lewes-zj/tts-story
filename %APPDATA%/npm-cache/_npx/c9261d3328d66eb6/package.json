@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "tabby-mcp-stdio": "^1.0.4"
+  },
+  "_npx": {
+    "packages": [
+      "tabby-mcp-stdio"
+    ]
+  }
+}

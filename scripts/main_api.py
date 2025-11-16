@@ -38,6 +38,21 @@ from scripts.file_upload_api import upload_multiple_files as file_upload_multipl
 from scripts.file_upload_api import list_files as file_list_files
 from scripts.file_upload_api import root as file_root
 
+# 有声故事书API路由
+STORY_BOOK_API_AVAILABLE = False
+try:
+    from scripts.story_book_api import StoryBookRequest, StoryBookResponse
+    from scripts.story_book_api import generate_story_book as story_book_generate_story_book
+    from scripts.story_book_api import root as story_book_root
+    STORY_BOOK_API_AVAILABLE = True
+except ImportError:
+    print("警告: 无法导入有声故事书API，该功能将不可用")
+    # 定义默认值以避免变量未绑定错误
+    StoryBookRequest = None
+    StoryBookResponse = None
+    story_book_generate_story_book = None
+    story_book_root = None
+
 # 添加情绪向量处理API路由
 app.post("/emo_vector/process_emo_vector/", response_model=EmoVectorResponse, summary="处理情绪向量")(emo_process_emo_vector)
 app.get("/emo_vector/", summary="情绪向量API根路径")(emo_root)
@@ -47,6 +62,13 @@ app.post("/file/upload/", summary="上传单个文件")(file_upload_file)
 app.post("/file/upload/multiple/", summary="批量上传文件")(file_upload_multiple_files)
 app.get("/file/files/", summary="列出已上传的文件")(file_list_files)
 app.get("/file/", summary="文件上传API根路径")(file_root)
+
+# 添加有声故事书API路由
+if STORY_BOOK_API_AVAILABLE and story_book_generate_story_book is not None and story_book_root is not None:
+    app.post("/story_book/generate/", response_model=StoryBookResponse, summary="生成有声故事书")(story_book_generate_story_book)
+    app.get("/story_book/", summary="有声故事书API根路径")(story_book_root)
+else:
+    print("有声故事书API不可用，跳过路由注册")
 
 @app.get("/", summary="API根路径")
 async def root():

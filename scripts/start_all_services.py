@@ -93,6 +93,7 @@ def start_services(daemon=False):
         print("- API Redoc文档: http://localhost:8000/redoc")
         print("- 情绪向量处理API: http://localhost:8000/emo_vector")
         print("- 文件上传API: http://localhost:8000/file")
+        print("- 有声故事书API: http://localhost:8000/story_book")
         print("- 按 Ctrl+C 停止服务")
 
         try:

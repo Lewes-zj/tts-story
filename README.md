@@ -7,6 +7,7 @@
 ## 功能特性
 
 - 根据数据库中的情绪向量配置生成语音
+- 支持有声故事书生成，结合角色声音和故事内容
 - 支持生成两种不同类型的音频文件（SPK和EMO）
 - 自动将生成结果存储到数据库
 - 提供RESTful API接口
@@ -96,6 +97,30 @@ CREATE TABLE `user_emo_audio`  (
 }
 ```
 
+### 有声故事书生成接口
+
+**POST** `/story_book/generate/`
+
+根据用户选择的角色和故事生成有声故事书
+
+#### 请求参数
+```json
+{
+  "user_id": 1,
+  "role_id": 1,
+  "story_path": "/path/to/story.json"
+}
+```
+
+#### 响应示例
+```json
+{
+  "success": true,
+  "message": "有声故事书生成成功",
+  "story_book_path": "/path/to/generated/story_book.wav"
+}
+```
+
 ## 使用方法
 
 1. 启动服务：
@@ -115,8 +140,10 @@ CREATE TABLE `user_emo_audio`  (
 
 1. **[generate_by_emo_vector.py](file:///E:/xxx/python_project/tts/scripts/generate_by_emo_vector.py)** - TTS生成器，负责调用IndexTTS生成音频文件
 2. **[emo_vector_processor.py](file:///E:/xxx/python_project/tts/scripts/emo_vector_processor.py)** - 情绪向量处理器，负责处理数据库配置并生成TTS参数
-3. **[emo_vector_api.py](file:///E:/xxx/python_project/tts/scripts/emo_vector_api.py)** - RESTful API接口，提供HTTP服务
-4. **[main_api.py](file:///E:/xxx/python_project/tts/scripts/main_api.py)** - 统一API网关，整合所有API服务
+3. **[story_book_generator.py](file:///E:/xxx/python_project/tts/scripts/story_book_generator.py)** - 有声故事书生成器，根据角色和故事生成有声书
+4. **[emo_vector_api.py](file:///E:/xxx/python_project/tts/scripts/emo_vector_api.py)** - RESTful API接口，提供HTTP服务
+5. **[story_book_api.py](file:///E:/xxx/python_project/tts/scripts/story_book_api.py)** - 有声故事书API接口
+6. **[main_api.py](file:///E:/xxx/python_project/tts/scripts/main_api.py)** - 统一API网关，整合所有API服务
 
 ### 数据访问对象
 
@@ -130,3 +157,4 @@ CREATE TABLE `user_emo_audio`  (
 
 1. **[test_emo_vector_processor.py](file:///E:/xxx/python_project/tts/scripts/test_emo_vector_processor.py)** - 测试情绪向量处理器
 2. **[test_emo_vector_api.py](file:///E:/xxx/python_project/tts/scripts/test_emo_vector_api.py)** - 测试情绪向量API
+3. **[test_story_book_generator.py](file:///E:/xxx/python_project/tts/scripts/test_story_book_generator.py)** - 测试有声故事书生成器
