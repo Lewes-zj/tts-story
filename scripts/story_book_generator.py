@@ -9,20 +9,10 @@ import json
 import time
 from typing import List, Dict, Optional
 
-# 添加项目根目录到Python路径
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from scripts.user_emo_audio_dao import UserEmoAudioDAO
 
-# TTS相关导入放在try-except块中以处理导入错误
-try:
-    from indextts.infer_v2 import IndexTTS2
-
-    TTS_AVAILABLE = True
-except ImportError:
-    print("警告: 未找到 indextts 包，TTS 功能将不可用")
-    IndexTTS2 = None
-    TTS_AVAILABLE = False
+# 从工具模块导入TTS相关函数
+from scripts.tts_utils import initialize_tts_model, TTS_AVAILABLE
 
 
 class StoryBookGenerator:
@@ -31,20 +21,7 @@ class StoryBookGenerator:
     def __init__(self):
         """初始化有声故事书生成器"""
         # 初始化TTS模型
-        # 初始化TTS模型
-        self.tts = None
-        if TTS_AVAILABLE:
-            try:
-                self.tts = IndexTTS2(
-                    cfg_path="/root/index-tts/checkpoints/config.yaml",
-                    model_dir="/root/index-tts/checkpoints",
-                    use_fp16=False,
-                    use_cuda_kernel=False,
-                    use_deepspeed=False,
-                )
-            except Exception as e:
-                print(f"初始化TTS模型时出错: {e}")
-                self.tts = None
+        self.tts = initialize_tts_model()
 
         # 初始化DAO
         self.user_emo_audio_dao = UserEmoAudioDAO()
@@ -69,6 +46,10 @@ class StoryBookGenerator:
         """
         if not TTS_AVAILABLE:
             print("错误: TTS 功能不可用，请确保已正确安装 indextts 包")
+            return None
+
+        if not self.tts:
+            print("错误: TTS 模型未正确初始化")
             return None
 
         try:

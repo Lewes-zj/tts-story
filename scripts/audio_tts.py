@@ -1,12 +1,12 @@
 import time
-from indextts.infer_v2 import IndexTTS2
 
-tts = IndexTTS2(
+# 从工具模块导入TTS相关函数
+from scripts.tts_utils import initialize_tts_model
+
+# 初始化TTS模型
+tts = initialize_tts_model(
     cfg_path="/root/index-tts/checkpoints/config.yaml",
-    model_dir="/root/index-tts/checkpoints",
-    use_fp16=False,
-    use_cuda_kernel=False,
-    use_deepspeed=False,
+    model_dir="/root/index-tts/checkpoints"
 )
 
 text = "爸爸说：“我们呀，得去买一小块毯子。”"

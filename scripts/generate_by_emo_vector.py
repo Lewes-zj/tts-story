@@ -6,17 +6,8 @@ import time
 import os
 import sys
 
-# 添加项目根目录到Python路径
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from indextts.infer_v2 import IndexTTS2
-    TTS_AVAILABLE = True
-except ImportError:
-    print("警告: 未找到 indextts 包，TTS 功能将不可用")
-    IndexTTS2 = None
-    TTS_AVAILABLE = False
-
+# 导入TTS工具函数
+from scripts.tts_utils import initialize_tts_model, TTS_AVAILABLE
 
 def generate_speech_from_emo_vectors(params_list):
     """
@@ -40,13 +31,10 @@ def generate_speech_from_emo_vectors(params_list):
         return params_list
 
     # 初始化TTS模型，配置本地路径和离线模式
-    tts = IndexTTS2(
-        cfg_path="/root/index-tts/checkpoints/config.yaml",
-        model_dir="/root/index-tts/checkpoints",
-        use_fp16=False,
-        use_cuda_kernel=False,
-        use_deepspeed=False,
-    )
+    tts = initialize_tts_model()
+    if not tts:
+        print("错误: TTS 模型初始化失败")
+        return params_list
 
     # 确保输出目录存在
     os.makedirs("outputs", exist_ok=True)
@@ -105,13 +93,10 @@ def generate_dual_speech_from_emo_config(input_audio, text, spk_emo_vector, spk_
         return None, None
 
     # 初始化TTS模型，配置本地路径和离线模式
-    tts = IndexTTS2(
-        cfg_path="/root/index-tts/checkpoints/config.yaml",
-        model_dir="/root/index-tts/checkpoints",
-        use_fp16=False,
-        use_cuda_kernel=False,
-        use_deepspeed=False,
-    )
+    tts = initialize_tts_model()
+    if not tts:
+        print("错误: TTS 模型初始化失败")
+        return None, None
 
     # 确保输出目录存在
     os.makedirs("outputs", exist_ok=True)
