@@ -137,3 +137,12 @@ Thumbs.db
 
 # Project specific
 .qoder/
+
+# Files and directories that should not be committed to GitHub
+%APPDATA%/
+%USERPROFILE%/
+checkpoints/
+download_models.py
+mcp.json
+node-v*.pkg
+nodejs.pkg
