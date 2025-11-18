@@ -1,3 +1,5 @@
+import sys
+sys.path.append("/root/autodl-tmp/index-tts")
 """
 统一API网关
 将所有API服务整合到一个应用中，提供统一的API文档

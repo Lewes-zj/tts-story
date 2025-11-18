@@ -47,7 +47,7 @@ def start_services(daemon=False):
 
         # 使用 uv 运行服务
         main_api_process = subprocess.Popen(
-            ["uv", "run", "scripts/main_api.py"],
+            ["python3.10", "scripts/main_api.py", "--host", "0.0.0.0", "--port", "8000", "scripts/main_api.py"],
             cwd=project_root,
             stdout=open(log_file, "w"),
             stderr=subprocess.STDOUT,
@@ -67,14 +67,14 @@ def start_services(daemon=False):
         try:
             # 尝试使用 uv 运行
             main_api_process = subprocess.Popen(
-                ["uv", "run", "scripts/main_api.py"], cwd=project_root
+                ["python3.10", "scripts/main_api.py", "--host", "0.0.0.0", "--port", "8000", "scripts/main_api.py"], cwd=project_root
             )
         except FileNotFoundError:
             # 如果没有 uv，使用传统的 Python 方式
             print("未找到 uv，使用传统 Python 方式启动...")
             main_api_process = subprocess.Popen(
                 [
-                    sys.executable,
+                    "python3.10",
                     "-m",
                     "uvicorn",
                     "scripts.main_api:app",

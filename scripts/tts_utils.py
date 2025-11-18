@@ -1,16 +1,27 @@
+import sys
+import os
+sys.path.append("/root/autodl-tmp/index-tts")
+
 """
 TTS工具模块
 包含与TTS相关的通用工具函数
 """
 
+TTS_AVAILABLE = False
+IndexTTS2 = None
+
 try:
     from indextts.infer_v2 import IndexTTS2
     TTS_AVAILABLE = True
-except ImportError:
-    print("警告: 未找到 indextts 包，TTS 功能将不可用")
+    print("成功导入IndexTTS2")
+except ImportError as e:
+    print(f"警告: 未找到 indextts 包，TTS 功能将不可用: {e}")
     IndexTTS2 = None
     TTS_AVAILABLE = False
-
+except Exception as e:
+    print(f"导入IndexTTS时发生未知错误: {e}")
+    IndexTTS2 = None
+    TTS_AVAILABLE = False
 
 def initialize_tts_model(cfg_path=None, model_dir=None):
     """
