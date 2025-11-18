@@ -127,3 +127,4 @@ class EmoVectorProcessor:
 
         logger.info(f"所有情绪向量处理完成，共生成{len(result_list)}个结果")
         return result_list
+    

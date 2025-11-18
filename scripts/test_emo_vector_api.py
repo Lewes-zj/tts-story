@@ -35,3 +35,4 @@ def test_emo_vector_api():
 
 if __name__ == "__main__":
     test_emo_vector_api()
+

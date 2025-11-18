@@ -101,3 +101,4 @@ if __name__ == "__main__":
     # 创建基础DAO实例
     base_dao = BaseDAO()
     print(f"数据库配置: {base_dao.db_config}")
+    

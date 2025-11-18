@@ -269,3 +269,4 @@ if __name__ == "__main__":
     # 删除记录
     # success = dao.delete(record_id=1)
     # print(f"删除结果: {success}")
+    

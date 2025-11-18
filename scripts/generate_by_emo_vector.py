@@ -196,3 +196,4 @@ def generate_dual_speech_from_emo_config(input_audio, text, spk_emo_vector, spk_
         error_msg = f"TTS推理过程中发生错误: {str(e)}"
         logger.error(error_msg)
         raise RuntimeError(error_msg) from e
+    

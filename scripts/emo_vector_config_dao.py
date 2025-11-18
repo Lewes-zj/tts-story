@@ -132,3 +132,4 @@ if __name__ == "__main__":
     # 根据情绪类型查询配置
     # configs = dao.fetch_configs_by_type("happy")
     # print(f"happy类型的配置: {configs}")
+    
