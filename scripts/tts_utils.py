@@ -1,9 +1,6 @@
 import sys
 import os
 
-# 设置HF_ENDPOINT环境变量以加速模型下载
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-
 sys.path.append("/root/autodl-tmp/index-tts")
 
 """
@@ -60,4 +57,3 @@ def initialize_tts_model(cfg_path=None, model_dir=None):
     except Exception as e:
         print(f"初始化TTS模型时出错: {e}")
         return None
-

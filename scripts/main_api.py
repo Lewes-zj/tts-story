@@ -8,11 +8,6 @@ sys.path.append("/root/autodl-tmp/index-tts")
 import sys
 import os
 
-# 设置环境变量，确保与命令行执行时一致
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-os.environ['HF_DATASETS_OFFLINE'] = '1'
-os.environ['TRANSFORMERS_OFFLINE'] = '1'
-
 # 添加项目根目录到Python路径，确保能正确导入模块
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:

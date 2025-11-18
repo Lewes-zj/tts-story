@@ -10,7 +10,7 @@ import os
 import argparse
 
 # 1. 定义 'indextts' 模块所在的根目录
-PROJECT_ROOT = "/root/index-tts"
+PROJECT_ROOT = "/root/autodl-tmp/index-tts"
 
 # 2. 检查这个路径是否已经在 Python 的搜索列表里
 if PROJECT_ROOT not in sys.path:
@@ -37,11 +37,6 @@ def start_services(daemon=False):
             if current_pythonpath
             else project_root
         )
-        
-        # 添加HF相关环境变量
-        env["HF_ENDPOINT"] = "https://hf-mirror.com"
-        env["HF_DATASETS_OFFLINE"] = "1"
-        env["TRANSFORMERS_OFFLINE"] = "1"
 
         # 创建日志文件
         log_file = os.path.join(project_root, "app.log")
