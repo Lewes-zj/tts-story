@@ -1,5 +1,9 @@
 import sys
 import os
+
+# 设置HF_ENDPOINT环境变量以加速模型下载
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
 sys.path.append("/root/autodl-tmp/index-tts")
 
 """

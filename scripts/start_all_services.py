@@ -37,8 +37,9 @@ def start_services(daemon=False):
             if current_pythonpath
             else project_root
         )
-
-        # 添加HF离线模式环境变量
+        
+        # 添加HF相关环境变量
+        env["HF_ENDPOINT"] = "https://hf-mirror.com"
         env["HF_DATASETS_OFFLINE"] = "1"
         env["TRANSFORMERS_OFFLINE"] = "1"
 

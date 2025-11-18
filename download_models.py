@@ -1,7 +1,8 @@
 import os
 from huggingface_hub import hf_hub_download
 
-# 设置环境变量确保离线模式
+# 设置环境变量确保离线模式和使用镜像源
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 os.environ['HF_DATASETS_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
 

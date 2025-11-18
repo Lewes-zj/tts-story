@@ -5,6 +5,11 @@
 import pymysql
 from typing import List, Optional, Dict, Any
 from scripts.base_dao import BaseDAO
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class UserEmoAudioDAO(BaseDAO):
@@ -17,10 +22,14 @@ class UserEmoAudioDAO(BaseDAO):
         Args:
             config_path (str, optional): 数据库配置文件路径，默认使用BaseDAO的默认路径
         """
+        logger.info("初始化UserEmoAudioDAO")
         if config_path:
+            logger.info(f"使用指定配置路径: {config_path}")
             super().__init__(config_path)
         else:
+            logger.info("使用默认配置路径")
             super().__init__()  # 使用BaseDAO的默认路径
+        logger.info("UserEmoAudioDAO初始化完成")
 
     def insert(
         self,
@@ -51,6 +60,9 @@ class UserEmoAudioDAO(BaseDAO):
         Returns:
             int: 插入记录的ID
         """
+        logger.info(f"插入用户情绪音频记录: user_id={user_id}, role_id={role_id}, emo_type={emo_type}")
+        logger.debug(f"spk_audio_prompt={spk_audio_prompt}, spk_emo_alpha={spk_emo_alpha}, emo_audio_prompt={emo_audio_prompt}, emo_alpha={emo_alpha}")
+        
         connection = self._get_db_connection()
         try:
             with connection.cursor() as cursor:
@@ -60,6 +72,7 @@ class UserEmoAudioDAO(BaseDAO):
                 emo_audio_prompt, emo_vector, emo_alpha)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """
+                logger.debug("执行SQL: INSERT用户情绪音频记录")
                 cursor.execute(
                     sql,
                     (
@@ -75,9 +88,15 @@ class UserEmoAudioDAO(BaseDAO):
                     ),
                 )
                 connection.commit()
-                return cursor.lastrowid
+                record_id = cursor.lastrowid
+                logger.info(f"用户情绪音频记录插入成功，记录ID: {record_id}")
+                return record_id
+        except Exception as e:
+            logger.error(f"插入用户情绪音频记录时发生错误: {str(e)}")
+            raise
         finally:
             connection.close()
+            logger.debug("数据库连接已关闭")
 
     def update(self, record_id: int, **kwargs) -> bool:
         """
@@ -90,7 +109,11 @@ class UserEmoAudioDAO(BaseDAO):
         Returns:
             bool: 更新是否成功
         """
+        logger.info(f"更新用户情绪音频记录: record_id={record_id}")
+        logger.debug(f"更新字段: {kwargs}")
+        
         if not kwargs:
+            logger.warning("没有提供要更新的字段")
             return False
 
         connection = self._get_db_connection()
@@ -99,14 +122,21 @@ class UserEmoAudioDAO(BaseDAO):
                 # 构建更新SQL
                 set_clause = ", ".join([f"{key} = %s" for key in kwargs.keys()])
                 sql = f"UPDATE user_emo_audio SET {set_clause} WHERE id = %s"
+                logger.debug(f"执行SQL: {sql}")
 
                 # 执行更新
                 values = list(kwargs.values()) + [record_id]
                 cursor.execute(sql, values)
                 connection.commit()
-                return cursor.rowcount > 0
+                success = cursor.rowcount > 0
+                logger.info(f"用户情绪音频记录更新{'成功' if success else '失败'}")
+                return success
+        except Exception as e:
+            logger.error(f"更新用户情绪音频记录时发生错误: {str(e)}")
+            raise
         finally:
             connection.close()
+            logger.debug("数据库连接已关闭")
 
     def delete(self, record_id: int) -> bool:
         """
@@ -118,15 +148,24 @@ class UserEmoAudioDAO(BaseDAO):
         Returns:
             bool: 删除是否成功
         """
+        logger.info(f"删除用户情绪音频记录: record_id={record_id}")
+        
         connection = self._get_db_connection()
         try:
             with connection.cursor() as cursor:
                 sql = "DELETE FROM user_emo_audio WHERE id = %s"
+                logger.debug(f"执行SQL: {sql}")
                 cursor.execute(sql, (record_id,))
                 connection.commit()
-                return cursor.rowcount > 0
+                success = cursor.rowcount > 0
+                logger.info(f"用户情绪音频记录删除{'成功' if success else '失败'}")
+                return success
+        except Exception as e:
+            logger.error(f"删除用户情绪音频记录时发生错误: {str(e)}")
+            raise
         finally:
             connection.close()
+            logger.debug("数据库连接已关闭")
 
     def query_by_user_role(
         self, user_id: int, role_id: int, emo_type: Optional[str] = None
@@ -142,21 +181,30 @@ class UserEmoAudioDAO(BaseDAO):
         Returns:
             List[Dict[str, Any]]: 查询结果列表
         """
+        logger.info(f"查询用户情绪音频记录: user_id={user_id}, role_id={role_id}, emo_type={emo_type}")
+        
         connection = self._get_db_connection()
         try:
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 if emo_type:
                     sql = "SELECT * FROM user_emo_audio WHERE user_id = %s AND role_id = %s AND emo_type = %s"
+                    logger.debug(f"执行SQL: {sql}")
                     cursor.execute(sql, (user_id, role_id, emo_type))
                 else:
                     sql = "SELECT * FROM user_emo_audio WHERE user_id = %s AND role_id = %s"
+                    logger.debug(f"执行SQL: {sql}")
                     cursor.execute(sql, (user_id, role_id))
 
                 results = cursor.fetchall()
+                logger.info(f"查询完成，返回{len(results)}条记录")
                 # 确保返回的是列表类型
                 return list(results) if results else []
+        except Exception as e:
+            logger.error(f"查询用户情绪音频记录时发生错误: {str(e)}")
+            raise
         finally:
             connection.close()
+            logger.debug("数据库连接已关闭")
 
     def query_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -168,15 +216,23 @@ class UserEmoAudioDAO(BaseDAO):
         Returns:
             Optional[Dict[str, Any]]: 查询结果，如果未找到返回None
         """
+        logger.info(f"根据ID查询用户情绪音频记录: record_id={record_id}")
+        
         connection = self._get_db_connection()
         try:
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 sql = "SELECT * FROM user_emo_audio WHERE id = %s"
+                logger.debug(f"执行SQL: {sql}")
                 cursor.execute(sql, (record_id,))
                 result = cursor.fetchone()
+                logger.info(f"ID查询{'成功' if result else '未找到记录'}")
                 return result
+        except Exception as e:
+            logger.error(f"根据ID查询用户情绪音频记录时发生错误: {str(e)}")
+            raise
         finally:
             connection.close()
+            logger.debug("数据库连接已关闭")
 
 
 # 示例用法
