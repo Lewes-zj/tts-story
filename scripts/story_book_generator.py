@@ -144,7 +144,7 @@ class StoryBookGenerator:
                 # 提取必要字段
                 text = story_item.get("text", "")
                 emotion_description = story_item.get("emotion_description", "")
-                interval_silence = story_item.get("interval_silence", 500)
+                interval_silence = story_item.get("interval_silence", 200)
 
                 if not text:
                     continue
@@ -165,19 +165,37 @@ class StoryBookGenerator:
 
                 # 调用TTS生成音频
                 if self.tts is not None:
+                    # 在调用TTS之前打印更多调试信息
+                    print(f"  调用TTS前的参数检查:")
+                    print(f"    spk_audio_prompt类型: {type(user_emo_audio['spk_audio_prompt'])}, 值: {user_emo_audio['spk_audio_prompt']}")
+                    print(f"    text类型: {type(text)}, 值: {text}")
+                    print(f"    output_path类型: {type(output_path)}, 值: {output_path}")
+                    print(f"    interval_silence类型: {type(interval_silence)}, 值: {interval_silence}")
+                    
                     if emotion_description == "其他":
                         # 使用平静情绪的数据
+                        print(f"    处理'其他'情绪类型，使用平静情绪数据")
+                        print(f"    emo_alpha类型: {type(user_emo_audio['emo_alpha'])}, 值: {user_emo_audio['emo_alpha']}")
+                        print(f"    emo_vector类型: {type(user_emo_audio['emo_vector'])}, 值: {user_emo_audio['emo_vector']}")
+                        
+                        # 确保emo_alpha是float类型
+                        emo_alpha = float(user_emo_audio["emo_alpha"])
+                        emo_vector = user_emo_audio["emo_vector"]
+                        
                         self.tts.infer(
                             spk_audio_prompt=user_emo_audio["spk_audio_prompt"],
                             text=text,
                             output_path=output_path,
-                            emo_alpha=user_emo_audio["emo_alpha"],
-                            emo_vector=user_emo_audio["emo_vector"],
+                            emo_alpha=emo_alpha,
+                            emo_vector=emo_vector,
                             interval_silence=interval_silence,
                             verbose=False,
                         )
                     else:
                         # 使用指定情绪的数据
+                        print(f"    处理'{emotion_description}'情绪类型，使用指定情绪数据")
+                        print(f"    emo_audio_prompt类型: {type(user_emo_audio['emo_audio_prompt'])}, 值: {user_emo_audio['emo_audio_prompt']}")
+                        
                         self.tts.infer(
                             spk_audio_prompt=user_emo_audio["spk_audio_prompt"],
                             text=text,
@@ -194,7 +212,15 @@ class StoryBookGenerator:
                 print(f"已生成音频片段: {output_path}")
 
             except Exception as e:
+                # 打印更多错误信息以便调试
                 print(f"生成第 {i} 个音频片段时出错: {str(e)}")
+                print(f"  当前故事项: {story_item}")
+                print(f"  匹配的情绪音频数据: {user_emo_audio}")
+                print(f"  输出路径: {output_path}")
+                print(f"  interval_silence类型: {type(interval_silence)}, 值: {interval_silence}")
+                if user_emo_audio:
+                    print(f"  emo_alpha类型: {type(user_emo_audio.get('emo_alpha'))}, 值: {user_emo_audio.get('emo_alpha')}")
+                    print(f"  spk_emo_alpha类型: {type(user_emo_audio.get('spk_emo_alpha'))}, 值: {user_emo_audio.get('spk_emo_alpha')}")
                 continue
 
         return audio_segments
