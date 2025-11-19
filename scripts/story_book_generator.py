@@ -18,10 +18,13 @@ from scripts.tts_utils import initialize_tts_model, TTS_AVAILABLE
 class StoryBookGenerator:
     """有声故事书生成器类"""
 
-    def __init__(self):
+    def __init__(self, keep_temp_files=False):
         """初始化有声故事书生成器"""
         # 初始化TTS模型
         self.tts = initialize_tts_model()
+        
+        # 是否保留临时文件
+        self.keep_temp_files = keep_temp_files
 
         # 初始化DAO
         self.user_emo_audio_dao = UserEmoAudioDAO()
@@ -78,8 +81,13 @@ class StoryBookGenerator:
             # 4. 合并所有音频片段
             final_story_path = self._merge_audio_segments(audio_segments)
 
-            # 5. 清理临时文件
-            self._cleanup_temp_files(audio_segments)
+            # 5. 清理临时文件（除非设置为保留）
+            if not self.keep_temp_files:
+                self._cleanup_temp_files(audio_segments)
+            else:
+                temp_dir = os.path.dirname(audio_segments[0]) if audio_segments else None
+                if temp_dir:
+                    print(f"已保留临时文件目录: {temp_dir}")
 
             return final_story_path
 
@@ -289,9 +297,8 @@ if __name__ == "__main__":
     #     role_id=1,
     #     story_path="db/xiaohongmao.json"
     # )
-    #
+    # 
     # if final_path:
     #     print(f"有声故事书生成成功: {final_path}")
     # else:
     #     print("有声故事书生成失败")
-    pass

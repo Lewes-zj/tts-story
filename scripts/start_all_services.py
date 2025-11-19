@@ -8,6 +8,7 @@ import sys
 import time
 import os
 import argparse
+import importlib.util
 
 # 1. 定义 'indextts' 模块所在的根目录
 PROJECT_ROOT = "/root/autodl-tmp/index-tts"
@@ -17,6 +18,61 @@ if PROJECT_ROOT not in sys.path:
     # 3. 如果不在，就把它添加进去
     sys.path.append(PROJECT_ROOT)
     print(f"[Info] 已将 {PROJECT_ROOT} 添加到 sys.path")  # (这行可以取消注释来调试)
+
+
+def check_and_install_dependencies():
+    """检查并安装项目依赖"""
+    print("检查项目依赖...")
+    
+    # 检查是否可以导入所需的模块
+    required_modules = [
+        ("fastapi", "fastapi>=0.68.0"),
+        ("uvicorn", "uvicorn>=0.15.0"),
+        ("pydantic", "pydantic>=1.8.0"),
+        ("pymysql", "pymysql>=1.0.2"),
+        ("yaml", "PyYAML>=6.0"),
+        ("requests", "requests>=2.28.1"),
+        ("multipart", "python-multipart>=0.0.5"),
+        ("pydub", "pydub>=0.25.1")
+    ]
+    
+    missing_modules = []
+    for module_name, install_name in required_modules:
+        try:
+            importlib.util.find_spec(module_name)
+        except ImportError:
+            missing_modules.append((module_name, install_name))
+    
+    # 如果有缺失的模块，尝试安装它们
+    if missing_modules:
+        print("检测到缺失的依赖，正在自动安装...")
+        try:
+            import subprocess
+            import sys
+            
+            # 构建安装命令
+            install_cmd = [sys.executable, "-m", "pip", "install"]
+            for _, install_name in missing_modules:
+                install_cmd.append(install_name)
+            
+            # 执行安装
+            result = subprocess.run(install_cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                print("依赖安装成功!")
+                # 重新检查导入
+                for module_name, _ in missing_modules:
+                    try:
+                        importlib.util.find_spec(module_name)
+                    except ImportError:
+                        print(f"警告: {module_name} 仍然无法导入")
+            else:
+                print(f"依赖安装失败: {result.stderr}")
+                print("请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub")
+        except Exception as e:
+            print(f"安装依赖时出错: {e}")
+            print("请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub")
+    else:
+        print("所有依赖已安装")
 
 
 def start_services(daemon=False):
@@ -109,5 +165,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # 检查并安装依赖
+    check_and_install_dependencies()
+    
     start_services(daemon=args.daemon)
-
