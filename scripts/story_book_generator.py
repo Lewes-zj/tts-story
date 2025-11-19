@@ -18,8 +18,12 @@ from scripts.tts_utils import initialize_tts_model, TTS_AVAILABLE
 class StoryBookGenerator:
     """有声故事书生成器类"""
 
-    def __init__(self, keep_temp_files=False):
-        """初始化有声故事书生成器"""
+    def __init__(self, keep_temp_files: bool = False):
+        """初始化有声故事书生成器
+
+        Args:
+            keep_temp_files (bool): 是否保留临时文件，默认为False
+        """
         # 初始化TTS模型
         self.tts = initialize_tts_model()
         
@@ -34,7 +38,7 @@ class StoryBookGenerator:
         os.makedirs(self.outputs_dir, exist_ok=True)
 
     def generate_story_book(
-        self, user_id: int, role_id: int, story_path: str
+        self, user_id: int, role_id: int, story_path: str, keep_temp_files: Optional[bool] = None
     ) -> Optional[str]:
         """
         生成有声故事书
@@ -43,6 +47,7 @@ class StoryBookGenerator:
             user_id (int): 用户ID
             role_id (int): 角色ID
             story_path (str): 故事文本路径
+            keep_temp_files (Optional[bool]): 是否保留临时文件，如果未提供则使用实例的默认值
 
         Returns:
             Optional[str]: 生成的完整有声故事书路径，如果失败则返回None
@@ -82,7 +87,9 @@ class StoryBookGenerator:
             final_story_path = self._merge_audio_segments(audio_segments)
 
             # 5. 清理临时文件（除非设置为保留）
-            if not self.keep_temp_files:
+            # 使用传入的参数或实例默认值
+            should_keep_temp_files = keep_temp_files if keep_temp_files is not None else self.keep_temp_files
+            if not should_keep_temp_files:
                 self._cleanup_temp_files(audio_segments)
             else:
                 temp_dir = os.path.dirname(audio_segments[0]) if audio_segments else None
