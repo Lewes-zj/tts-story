@@ -115,6 +115,45 @@ class EmoVectorConfigDAO(BaseDAO):
             connection.close()
             logger.debug("数据库连接已关闭")
 
+    def fetch_all_configs_as_map(self) -> Dict[str, Dict[str, Any]]:
+        """
+        查询emo_vector_config表所有数据后得到的dataList，将dataList转成map，
+        key为emo_type，value为整条数据
+
+        Returns:
+            Dict[str, Dict[str, Any]]: 以emo_type为键的配置数据映射
+        """
+        logger.info("查询所有情绪向量配置并转换为映射")
+        
+        connection = self._get_db_connection()
+        try:
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                # 查询所有情绪向量配置
+                sql = "SELECT * FROM emo_vector_config"
+                logger.debug(f"执行SQL: {sql}")
+                cursor.execute(sql)
+                results = cursor.fetchall()
+                
+                # 转换为以emo_type为键的映射
+                config_map = {}
+                if results:
+                    for row in results:
+                        emo_type = row['type']
+                        # 如果同一个emo_type有多个记录，保留第一个并记录警告
+                        if emo_type in config_map:
+                            logger.warning(f"发现重复的emo_type '{emo_type}'，将保留第一条记录")
+                        else:
+                            config_map[emo_type] = row
+                
+                logger.info(f"查询完成，返回{len(config_map)}个配置项")
+                return config_map
+        except Exception as e:
+            logger.error(f"查询所有情绪向量配置并转换为映射时发生错误: {str(e)}")
+            raise
+        finally:
+            connection.close()
+            logger.debug("数据库连接已关闭")
+
 
 # 示例用法
 if __name__ == "__main__":

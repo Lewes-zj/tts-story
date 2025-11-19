@@ -85,20 +85,14 @@ class EmoVectorProcessor:
         # 遍历每个情绪配置
         for i, config in enumerate(emo_configs):
             logger.info(f"处理第{i+1}/{len(emo_configs)}个情绪配置，类型: {config['type']}")
-            
+            emo_type = config['type']
             # 解析情绪向量
-            logger.debug(f"解析spk_emo_vector: {config['spk_emo_vector']}")
             spk_emo_vector = self._parse_vector_string(config["spk_emo_vector"])
-            logger.debug(f"解析emo_vector: {config['emo_vector']}")
             emo_vector = self._parse_vector_string(config["emo_vector"])
-
             # 获取情绪混合系数
-            logger.debug(f"获取spk_emo_alpha: {config['spk_emo_alpha']}")
             spk_emo_alpha = float(config["spk_emo_alpha"])
-            logger.debug(f"获取emo_alpha: {config['emo_alpha']}")
             emo_alpha = float(config["emo_alpha"])
-            
-            logger.info(f"开始调用TTS生成音频，情绪类型: {config['type']}")
+            logger.info(f"开始调用TTS生成音频，情绪类型: {emo_type}，spk_emo_vector: {spk_emo_vector}，emo_vector: {emo_vector}，spk_emo_alpha: {spk_emo_alpha}，emo_alpha: {emo_alpha}")
             # 调用TTS生成两种不同类型的音频文件
             spk_output_path, emo_output_path = generate_dual_speech_from_emo_config(
                 input_audio=input_audio,
@@ -108,22 +102,21 @@ class EmoVectorProcessor:
                 emo_vector=emo_vector,
                 emo_alpha=emo_alpha,
             )
-            logger.info(f"TTS生成完成，spk_output_path: {spk_output_path}, emo_output_path: {emo_output_path}")
+            logger.info(f"TTS生成完成，情绪类型: {emo_type}，spk_output_path: {spk_output_path}, emo_output_path: {emo_output_path}")
 
             # 构造结果字典
             result = {
-                "emo_type": config["type"],
+                "emo_type": emo_type,
                 "text": text,
                 "spk_audio_prompt": spk_output_path,
-                "spk_emo_vector": config["spk_emo_vector"],
+                "spk_emo_vector": spk_emo_vector,
                 "spk_emo_alpha": spk_emo_alpha,
                 "emo_audio_prompt": emo_output_path,
-                "emo_vector": config["emo_vector"],
+                "emo_vector": emo_vector,
                 "emo_alpha": emo_alpha,
             }
-            
             result_list.append(result)
-            logger.info(f"第{i+1}/{len(emo_configs)}个情绪配置处理完成")
+            logger.info(f"{emo_type}情绪配置处理完成")
 
         logger.info(f"所有情绪向量处理完成，共生成{len(result_list)}个结果")
         return result_list

@@ -234,6 +234,47 @@ class UserEmoAudioDAO(BaseDAO):
             connection.close()
             logger.debug("数据库连接已关闭")
 
+    def query_by_user_role_as_map(self, user_id: int, role_id: int) -> Dict[str, Dict[str, Any]]:
+        """
+        根据用户ID和角色ID查询用户情绪音频记录，并将结果转换为映射
+        键（key）是 emo_type（情绪类型），值（value）是完整的数据记录
+
+        Args:
+            user_id (int): 用户ID
+            role_id (int): 角色ID
+
+        Returns:
+            Dict[str, Dict[str, Any]]: 以emo_type为键的记录映射
+        """
+        logger.info(f"根据用户ID和角色ID查询用户情绪音频记录并转换为映射: user_id={user_id}, role_id={role_id}")
+        
+        connection = self._get_db_connection()
+        try:
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                sql = "SELECT * FROM user_emo_audio WHERE user_id = %s AND role_id = %s"
+                logger.debug(f"执行SQL: {sql}")
+                cursor.execute(sql, (user_id, role_id))
+                results = cursor.fetchall()
+                
+                # 转换为以emo_type为键的映射
+                records_map = {}
+                if results:
+                    for row in results:
+                        emo_type = row['emo_type']
+                        # 如果同一个emo_type有多个记录，保留第一个并记录警告
+                        if emo_type in records_map:
+                            logger.warning(f"发现重复的emo_type '{emo_type}'，将保留第一条记录")
+                        else:
+                            records_map[emo_type] = row
+                
+                logger.info(f"查询完成，返回{len(records_map)}条记录")
+                return records_map
+        except Exception as e:
+            logger.error(f"根据用户ID和角色ID查询用户情绪音频记录并转换为映射时发生错误: {str(e)}")
+            raise
+        finally:
+            connection.close()
+            logger.debug("数据库连接已关闭")
 
 # 示例用法
 if __name__ == "__main__":

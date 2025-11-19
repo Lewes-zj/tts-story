@@ -7,6 +7,12 @@ import os
 import sys
 import json
 import time
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 from typing import List, Dict, Optional
 
 from scripts.user_emo_audio_dao import UserEmoAudioDAO
@@ -26,7 +32,7 @@ class StoryBookGenerator:
         """
         # 初始化TTS模型
         self.tts = initialize_tts_model()
-        
+
         # 是否保留临时文件
         self.keep_temp_files = keep_temp_files
 
@@ -53,34 +59,35 @@ class StoryBookGenerator:
             Optional[str]: 生成的完整有声故事书路径，如果失败则返回None
         """
         if not TTS_AVAILABLE:
-            print("错误: TTS 功能不可用，请确保已正确安装 indextts 包")
+            logger.error("错误: TTS 功能不可用，请确保已正确安装 indextts 包")
             return None
 
         if not self.tts:
-            print("错误: TTS 模型未正确初始化")
+            logger.error("错误: TTS 模型未正确初始化")
             return None
 
         try:
             # 1. 根据user_id和role_id查询user_emo_audio表所有数据
-            user_emo_audio_list = self.user_emo_audio_dao.query_by_user_role(
+            user_emo_audio_map = self.user_emo_audio_dao.query_by_user_role_as_map(
                 user_id, role_id
             )
-            if not user_emo_audio_list:
-                print(f"错误: 未找到用户ID {user_id} 和角色ID {role_id} 的情绪音频数据")
+            if not user_emo_audio_map:
+                logger.info(f"错误: 未找到用户ID {user_id} 和角色ID {role_id} 的情绪音频数据")
                 return None
 
             # 2. 解析故事JSON文件
             story_list = self._parse_story_file(story_path)
             if not story_list:
-                print(f"错误: 无法解析故事文件 {story_path}")
+                logger.error(f"错误: 无法解析故事文件 {story_path}")
                 return None
 
             # 3. 生成单个音频片段
             audio_segments = self._generate_audio_segments(
-                story_list, user_emo_audio_list
+                story_list, user_emo_audio_map
             )
+
             if not audio_segments:
-                print("错误: 未能生成任何音频片段")
+                logger.error("错误: 未能生成任何音频片段")
                 return None
 
             # 4. 合并所有音频片段
@@ -92,14 +99,15 @@ class StoryBookGenerator:
             if not should_keep_temp_files:
                 self._cleanup_temp_files(audio_segments)
             else:
-                temp_dir = os.path.dirname(audio_segments[0]) if audio_segments else None
+                temp_dir = os.path.dirname(
+                    audio_segments[0]) if audio_segments else None
                 if temp_dir:
-                    print(f"已保留临时文件目录: {temp_dir}")
+                    logger.info(f"已保留临时文件目录: {temp_dir}")
 
             return final_story_path
 
         except Exception as e:
-            print(f"生成有声故事书时出错: {str(e)}")
+            logger.error(f"生成有声故事书时出错: {str(e)}")
             return None
 
     def _parse_story_file(self, story_path: str) -> List[Dict]:
@@ -121,14 +129,14 @@ class StoryBookGenerator:
             return []
 
     def _generate_audio_segments(
-        self, story_list: List[Dict], user_emo_audio_list: List[Dict]
+        self, story_list: List[Dict], user_emo_audio_map: Dict[str, Dict]
     ) -> List[str]:
         """
         生成音频片段
 
         Args:
             story_list (List[Dict]): 故事段落列表
-            user_emo_audio_list (List[Dict]): 用户情绪音频数据列表
+            user_emo_audio_map (Dict[str, Dict]): 用户情绪音频数据映射，键为情绪类型，值为完整数据记录
 
         Returns:
             List[str]: 生成的音频文件路径列表
@@ -143,21 +151,23 @@ class StoryBookGenerator:
             try:
                 # 提取必要字段
                 text = story_item.get("text", "")
-                emotion_description = story_item.get("emotion_description", "")
+                emotion_description = story_item.get("emotion_description", "其他")
                 interval_silence = story_item.get("interval_silence", 200)
 
                 if not text:
                     continue
 
-                # 根据emotion_description找到对应的用户情绪音频数据
-                user_emo_audio = self._find_matching_emo_audio(
-                    emotion_description, user_emo_audio_list
-                )
+                # 根据emotion_description直接从映射中查找对应的用户情绪音频数据
+                user_emo_audio = None
+                if emotion_description == "其他":
+                    # 如果情绪描述为"其他"，则查找"平静"类型的数据
+                    user_emo_audio = user_emo_audio_map.get("平静")
+                else:
+                    # 直接通过情绪类型作为键查找
+                    user_emo_audio = user_emo_audio_map.get(emotion_description)
 
                 if not user_emo_audio:
-                    print(
-                        f"警告: 未找到情绪类型 '{emotion_description}' 的匹配音频数据，跳过该段落"
-                    )
+                    logger.error(f"警告: 未找到情绪类型 '{emotion_description}' 的匹配音频数据，跳过该段落")
                     continue
 
                 # 生成输出路径
@@ -166,22 +176,14 @@ class StoryBookGenerator:
                 # 调用TTS生成音频
                 if self.tts is not None:
                     # 在调用TTS之前打印更多调试信息
-                    print(f"  调用TTS前的参数检查:")
-                    print(f"    spk_audio_prompt类型: {type(user_emo_audio['spk_audio_prompt'])}, 值: {user_emo_audio['spk_audio_prompt']}")
-                    print(f"    text类型: {type(text)}, 值: {text}")
-                    print(f"    output_path类型: {type(output_path)}, 值: {output_path}")
-                    print(f"    interval_silence类型: {type(interval_silence)}, 值: {interval_silence}")
-                    
+                    logger.info(f"调用TTS前的参数检查: emotion_description: {emotion_description}, text: {text}, user_emo_audio: {user_emo_audio}")
+
                     if emotion_description == "其他":
                         # 使用平静情绪的数据
-                        print(f"    处理'其他'情绪类型，使用平静情绪数据")
-                        print(f"    emo_alpha类型: {type(user_emo_audio['emo_alpha'])}, 值: {user_emo_audio['emo_alpha']}")
-                        print(f"    emo_vector类型: {type(user_emo_audio['emo_vector'])}, 值: {user_emo_audio['emo_vector']}")
-                        
                         # 确保emo_alpha是float类型
                         emo_alpha = float(user_emo_audio["emo_alpha"])
                         emo_vector = user_emo_audio["emo_vector"]
-                        
+                        logger.info(f"其他类型，使用平静情绪，调用参数有: spk_audio_prompt: {user_emo_audio['spk_audio_prompt']}, text: {text}, emo_alpha: {emo_alpha}，emo_vector:{emo_vector}, interval_silence:{interval_silence}")
                         self.tts.infer(
                             spk_audio_prompt=user_emo_audio["spk_audio_prompt"],
                             text=text,
@@ -189,67 +191,32 @@ class StoryBookGenerator:
                             emo_alpha=emo_alpha,
                             emo_vector=emo_vector,
                             interval_silence=interval_silence,
-                            verbose=False,
+                            verbose=True,
                         )
                     else:
                         # 使用指定情绪的数据
-                        print(f"    处理'{emotion_description}'情绪类型，使用指定情绪数据")
-                        print(f"    emo_audio_prompt类型: {type(user_emo_audio['emo_audio_prompt'])}, 值: {user_emo_audio['emo_audio_prompt']}")
-                        
+                        logger.info(f"使用指定情绪，调用参数有: spk_audio_prompt: {user_emo_audio['spk_audio_prompt']}, text: {text}, emo_audio_prompt: {user_emo_audio['emo_audio_prompt']}, interval_silence:{interval_silence}")
                         self.tts.infer(
                             spk_audio_prompt=user_emo_audio["spk_audio_prompt"],
                             text=text,
                             emo_audio_prompt=user_emo_audio["emo_audio_prompt"],
                             output_path=output_path,
                             interval_silence=interval_silence,
-                            verbose=False,
+                            verbose=True,
                         )
                 else:
-                    print("错误: TTS模型未初始化，无法生成音频")
+                    logger.error("错误: TTS模型未初始化，无法生成音频")
                     continue
 
                 audio_segments.append(output_path)
-                print(f"已生成音频片段: {output_path}")
+                logger.info(f"text:{text}, 已生成音频片段: {output_path}")
 
             except Exception as e:
                 # 打印更多错误信息以便调试
-                print(f"生成第 {i} 个音频片段时出错: {str(e)}")
-                print(f"  当前故事项: {story_item}")
-                print(f"  匹配的情绪音频数据: {user_emo_audio}")
-                print(f"  输出路径: {output_path}")
-                print(f"  interval_silence类型: {type(interval_silence)}, 值: {interval_silence}")
-                if user_emo_audio:
-                    print(f"  emo_alpha类型: {type(user_emo_audio.get('emo_alpha'))}, 值: {user_emo_audio.get('emo_alpha')}")
-                    print(f"  spk_emo_alpha类型: {type(user_emo_audio.get('spk_emo_alpha'))}, 值: {user_emo_audio.get('spk_emo_alpha')}")
+                logger.error(f"生成第 {i} 个音频片段时出错: {str(e)}, 当前故事项: {story_item}, 匹配的情绪音频数据: {user_emo_audio}")
                 continue
 
         return audio_segments
-
-    def _find_matching_emo_audio(
-        self, emotion_description: str, user_emo_audio_list: List[Dict]
-    ) -> Optional[Dict]:
-        """
-        根据情绪描述找到匹配的用户情绪音频数据
-
-        Args:
-            emotion_description (str): 情绪描述
-            user_emo_audio_list (List[Dict]): 用户情绪音频数据列表
-
-        Returns:
-            Optional[Dict]: 匹配的情绪音频数据，未找到则返回None
-        """
-        # 如果情绪描述为"其他"，则查找"平静"类型的数据
-        if emotion_description == "其他":
-            for item in user_emo_audio_list:
-                if item.get("emo_type") == "平静":
-                    return item
-        else:
-            # 查找匹配的情绪类型
-            for item in user_emo_audio_list:
-                if item.get("emo_type") == emotion_description:
-                    return item
-
-        return None
 
     def _merge_audio_segments(self, audio_segments: List[str]) -> Optional[str]:
         """
@@ -308,7 +275,8 @@ class StoryBookGenerator:
         Args:
             audio_segments (List[str]): 音频片段路径列表
         """
-        temp_dir = os.path.dirname(audio_segments[0]) if audio_segments else None
+        temp_dir = os.path.dirname(
+            audio_segments[0]) if audio_segments else None
         if temp_dir and os.path.exists(temp_dir):
             try:
                 import shutil
@@ -330,7 +298,7 @@ if __name__ == "__main__":
     #     role_id=1,
     #     story_path="db/xiaohongmao.json"
     # )
-    # 
+    #
     # if final_path:
     #     print(f"有声故事书生成成功: {final_path}")
     # else:

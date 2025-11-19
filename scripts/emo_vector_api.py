@@ -22,8 +22,8 @@ from scripts.emo_vector_processor import EmoVectorProcessor
 # 导入用户情绪音频DAO
 from scripts.user_emo_audio_dao import UserEmoAudioDAO
 
-# 导入情绪向量配置DAO
-from scripts.emo_vector_config_dao import EmoVectorConfigDAO
+# # 导入情绪向量配置DAO
+# from scripts.emo_vector_config_dao import EmoVectorConfigDAO
 
 # 创建FastAPI应用实例
 app = FastAPI(title="情绪向量处理API", description="根据情绪向量生成语音的API")
@@ -33,8 +33,8 @@ logger.info("初始化EmoVectorProcessor...")
 emo_processor = EmoVectorProcessor()
 logger.info("初始化UserEmoAudioDAO...")
 user_emo_dao = UserEmoAudioDAO()
-logger.info("初始化EmoVectorConfigDAO...")
-emo_config_dao = EmoVectorConfigDAO()
+# logger.info("初始化EmoVectorConfigDAO...")
+# emo_config_dao = EmoVectorConfigDAO()
 logger.info("所有组件初始化完成")
 
 
