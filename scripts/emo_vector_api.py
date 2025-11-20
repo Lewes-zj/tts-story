@@ -103,10 +103,10 @@ async def process_emo_vector(request: EmoVectorRequest):
                 role_id=request.role_id,
                 emo_type=result["emo_type"],
                 spk_audio_prompt=result["spk_audio_prompt"],
-                spk_emo_vector=result["spk_emo_vector"],
+                spk_emo_vector=str(result["spk_emo_vector"]).replace(' ', '').replace('0.0', '0'),  # 转换为字符串并格式化为数据库兼容格式
                 spk_emo_alpha=result["spk_emo_alpha"],
                 emo_audio_prompt=result["emo_audio_prompt"],
-                emo_vector=result["emo_vector"],
+                emo_vector=str(result["emo_vector"]).replace(' ', '').replace('0.0', '0'),  # 转换为字符串并格式化为数据库兼容格式
                 emo_alpha=result["emo_alpha"],
             )
             logger.info(f"数据库记录插入成功，记录ID: {record_id}")
