@@ -82,7 +82,7 @@ class StoryBookGenerator:
                 return None
 
             # 3. 生成单个音频片段
-            audio_segments = self._generate_audio_segments(
+            audio_segments, interval_silence_list = self._generate_audio_segments(
                 story_list, user_emo_audio_map
             )
 
@@ -91,7 +91,7 @@ class StoryBookGenerator:
                 return None
 
             # 4. 合并所有音频片段
-            final_story_path = self._merge_audio_segments(audio_segments)
+            final_story_path = self._merge_audio_segments(audio_segments, interval_silence_list)
 
             # 5. 清理临时文件（除非设置为保留）
             # 使用传入的参数或实例默认值
@@ -142,6 +142,7 @@ class StoryBookGenerator:
             List[str]: 生成的音频文件路径列表
         """
         audio_segments = []
+        interval_silence_list = []
 
         # 创建临时目录存放音频片段
         temp_dir = os.path.join(self.outputs_dir, f"temp_{int(time.time() * 1000)}")
@@ -153,6 +154,7 @@ class StoryBookGenerator:
                 text = story_item.get("text", "")
                 emotion_description = story_item.get("emotion_description", "其他")
                 interval_silence = story_item.get("interval_silence", 200)
+                interval_silence_list.append(interval_silence)
 
                 if not text:
                     continue
@@ -181,7 +183,8 @@ class StoryBookGenerator:
                     if emotion_description == "其他":
                         # 使用平静情绪的数据
                         # 确保emo_alpha是float类型
-                        emo_alpha = float(user_emo_audio["emo_alpha"])
+                        # emo_alpha = float(user_emo_audio["emo_alpha"])
+                        emo_alpha = value.normalize(user_emo_audio["emo_alpha"])
                         emo_vector = user_emo_audio["emo_vector"]
                         logger.info(f"其他类型，使用平静情绪，调用参数有: spk_audio_prompt: {user_emo_audio['spk_audio_prompt']}, text: {text}, emo_alpha: {emo_alpha}，emo_vector:{emo_vector}, interval_silence:{interval_silence}")
                         self.tts.infer(
@@ -190,7 +193,7 @@ class StoryBookGenerator:
                             output_path=output_path,
                             emo_alpha=emo_alpha,
                             emo_vector=emo_vector,
-                            interval_silence=interval_silence,
+                            # interval_silence=interval_silence,
                             verbose=True,
                         )
                     else:
@@ -201,7 +204,7 @@ class StoryBookGenerator:
                             text=text,
                             emo_audio_prompt=user_emo_audio["emo_audio_prompt"],
                             output_path=output_path,
-                            interval_silence=interval_silence,
+                            # interval_silence=interval_silence,
                             verbose=True,
                         )
                 else:
@@ -216,14 +219,15 @@ class StoryBookGenerator:
                 logger.error(f"生成第 {i} 个音频片段时出错: {str(e)}, 当前故事项: {story_item}, 匹配的情绪音频数据: {user_emo_audio}")
                 continue
 
-        return audio_segments
+        return audio_segments, interval_silence_list
 
-    def _merge_audio_segments(self, audio_segments: List[str]) -> Optional[str]:
+    def _merge_audio_segments(self, audio_segments: List[str], interval_silence_list: List[int]) -> Optional[str]:
         """
         合并音频片段
 
         Args:
             audio_segments (List[str]): 音频片段路径列表
+            interval_silence_list (List[int]): 静音间隔列表，单位毫秒
 
         Returns:
             Optional[str]: 合并后的音频文件路径
@@ -240,10 +244,20 @@ class StoryBookGenerator:
                 # 创建一个空的音频段
                 combined = AudioSegment.silent(duration=0)
 
-                # 依次添加每个音频片段
-                for segment_path in audio_segments:
+                # 依次添加每个音频片段和对应的静音间隔
+                for i, segment_path in enumerate(audio_segments):
                     audio = AudioSegment.from_wav(segment_path)
+                    # 【关键优化】添加微小的淡入淡出 (Fade)
+                    # 这能消除音频拼接处的"咔哒"声(Click/Pop)，这是专业感的关键
+                    audio = audio.fade_in(10).fade_out(10)
                     combined += audio
+                    
+                    # 添加静音间隔（除了最后一个音频片段）
+                    if i < len(audio_segments) - 1:
+                        # 获取对应下标的静音间隔，如果没有则使用默认值200ms
+                        interval_silence = interval_silence_list[i] if i < len(interval_silence_list) else 200
+                        silence = AudioSegment.silent(duration=interval_silence)
+                        combined += silence
 
                 # 生成最终输出路径
                 timestamp_ms = int(time.time() * 1000)
