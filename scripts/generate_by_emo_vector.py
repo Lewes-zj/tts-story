@@ -57,7 +57,7 @@ def generate_speech_from_emo_vectors(params_list):
             # 提取必要参数
             text = params.get("text")
             spk_audio_prompt = params.get("spk_audio_prompt")
-            emo_alpha = value.normalize(params.get("emo_alpha", 0.65))
+            emo_alpha = float(params.get("emo_alpha", 0.65))
             emo_vector = params.get("emo_vector", [0] * 8)
 
             # 可选参数

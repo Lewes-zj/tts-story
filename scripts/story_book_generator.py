@@ -182,9 +182,8 @@ class StoryBookGenerator:
 
                     if emotion_description == "其他":
                         # 使用平静情绪的数据
-                        # 确保emo_alpha是float类型
-                        # emo_alpha = float(user_emo_audio["emo_alpha"])
-                        emo_alpha = value.normalize(user_emo_audio["emo_alpha"])
+                        # 确保emo_alpha是float类型，解决decimal(10,2)转换问题
+                        emo_alpha = float(user_emo_audio["emo_alpha"])
                         emo_vector = user_emo_audio["emo_vector"]
                         logger.info(f"其他类型，使用平静情绪，调用参数有: spk_audio_prompt: {user_emo_audio['spk_audio_prompt']}, text: {text}, emo_alpha: {emo_alpha}，emo_vector:{emo_vector}, interval_silence:{interval_silence}")
                         self.tts.infer(
