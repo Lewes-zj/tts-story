@@ -13,9 +13,12 @@ from scripts.audio_processor import process_audio_with_deepfilternet_denoiser
 
 logger = logging.getLogger(__name__)
 
-# 导入UPLOAD_DIR配置
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/tmp/tts-story/uploads")
+# 输出目录配置（与audio_tts.py保持一致）
+OUTPUTS_DIR = "outputs"
 router = APIRouter(prefix="/api/characters", tags=["角色管理"])
+
+# 确保输出目录存在
+os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
 # 创建DAO实例
 character_dao = CharacterDAO()
@@ -72,8 +75,8 @@ async def create_character(request: CharacterRequest, current_user: dict = Depen
                     if not file_name.endswith('.wav'):
                         file_name = f"{os.path.splitext(file_name)[0]}.wav"
 
-                    # 构建完整的文件路径（存储在upload目录下）
-                    init_input = os.path.join(UPLOAD_DIR, file_name)
+                    # 构建完整的文件路径（存储在outputs目录下，与audio_tts.py保持一致）
+                    init_input = os.path.join(OUTPUTS_DIR, file_name)
 
                     # 验证文件是否存在
                     if not os.path.exists(init_input):

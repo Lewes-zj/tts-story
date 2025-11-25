@@ -1,11 +1,11 @@
 """文件管理API"""
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
 import uuid
-from typing import Optional
+import time
 from scripts.file_dao import FileDAO
 from scripts.auth_api import get_current_user
 import logging
@@ -40,6 +40,7 @@ file_dao = FileDAO()
 
 # 文件上传配置
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/tmp/tts-story/uploads")
+OUTPUTS_DIR = "outputs"
 FILE_URL_PREFIX = os.getenv("FILE_URL_PREFIX", "http://localhost:8080/api/files/audio/")
 
 
@@ -50,8 +51,9 @@ class FileUploadResponse(BaseModel):
     name: str
 
 
-# 确保上传目录存在
+# 确保上传目录和输出目录存在
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
 
 @router.post("/upload", response_model=FileUploadResponse)
@@ -73,9 +75,9 @@ async def upload_file(
         
         logger.info(f"开始上传文件: {original_filename}, 扩展名: {file_extension}, 大小: {len(content)} bytes, PYDUB_AVAILABLE: {PYDUB_AVAILABLE}")
         
-        # 生成唯一文件名（wav格式）
-        unique_filename = f"{uuid.uuid4()}.wav"
-        wav_file_path = os.path.join(UPLOAD_DIR, unique_filename)
+        # 生成唯一文件名（wav格式，使用时间戳，与audio_tts.py保持一致）
+        unique_filename = f"{int(time.time() * 1000)}.wav"
+        wav_file_path = os.path.join(OUTPUTS_DIR, unique_filename)
         
         # 如果上传的是webm或其他格式，转换为wav
         if file_extension in ['.webm', '.ogg', '.mp3', '.m4a']:
@@ -236,7 +238,7 @@ async def get_audio_file(file_id: int):
         # 从file_url中提取文件名，或使用file_name
         # 这里简化处理，实际应该存储完整的文件路径
         file_name = file_record["file_name"]
-        file_path = os.path.join(UPLOAD_DIR, file_name)
+        file_path = os.path.join(OUTPUTS_DIR, file_name)
         
         # 如果直接文件名不存在，尝试查找UUID格式的文件
         if not os.path.exists(file_path):
