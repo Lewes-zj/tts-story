@@ -99,7 +99,7 @@ async def create_character(request: CharacterRequest, current_user: dict = Depen
                                 clean_input = os.path.abspath(clean_input)
                                 logger.info(f"音频处理成功: {clean_input}")
                             else:
-                                logger.warning(f"音频处理失败，clean_input 将为 None")
+                                logger.warning("音频处理失败，clean_input 将为 None")
                                 clean_input = None
                         except Exception as e:
                             logger.error(f"音频处理异常: {str(e)}")
@@ -156,7 +156,9 @@ async def get_user_characters(current_user: dict = Depends(get_current_user)):
 async def get_character_audio(character_id: int, current_user: dict = Depends(get_current_user)):
     """获取角色的音频路径"""
     try:
-        user_id = current_user["user_id"]
+        user_id = current_user.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="用户信息无效")
 
         # 验证角色是否属于当前用户
         character = character_dao.find_by_id(character_id)
