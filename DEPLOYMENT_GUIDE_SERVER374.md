@@ -1,9 +1,11 @@
-# DeepFilterNet + Denoiser 部署指南 - 服务器374
+# DeepFilterNet + Denoiser 部署指南 - 服务器 374
 
 ## 部署目标
-在服务器374的 `/root/autodl-tmp/extract-vocals` 目录下部署 DeepFilterNet 和 Denoiser，实现两步音频处理流程（降噪 + 去混响）。
+
+在服务器 374 的 `/root/autodl-tmp/extract-vocals` 目录下部署 DeepFilterNet 和 Denoiser，实现两步音频处理流程（降噪 + 去混响）。
 
 ## 前置条件
+
 - 服务器：374
 - 部署路径：`/root/autodl-tmp/extract-vocals`
 - GPU：RTX 5090（需要特殊处理兼容性）
@@ -30,6 +32,7 @@ nvcc --version 2>/dev/null || echo "nvcc not found"
 ```
 
 **预期结果**：
+
 - Python 3.12+
 - CUDA 12.4+
 - RTX 5090 可用
@@ -53,6 +56,7 @@ python3 --version
 ```
 
 **预期结果**：
+
 - 虚拟环境创建成功
 - Python 路径指向 `venv/bin/python3`
 
@@ -75,10 +79,12 @@ python3 -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA a
 ```
 
 **注意**：
+
 - 虽然会显示 sm_120 不兼容警告，但可以通过兼容模式正常运行
 - 测试 GPU 计算功能是否正常
 
 **预期结果**：
+
 - PyTorch 2.5.0+cu124 安装成功
 - CUDA 可用
 - GPU 计算测试通过
@@ -95,6 +101,7 @@ pip install soundfile librosa numpy scipy
 ```
 
 **预期结果**：
+
 - 所有依赖安装成功
 
 ---
@@ -112,6 +119,7 @@ python3 -c "import df.enhance; print('DeepFilterNet installed successfully')"
 ```
 
 **预期结果**：
+
 - DeepFilterNet 安装成功
 - 可以正常导入
 
@@ -130,6 +138,7 @@ python3 -c "from denoiser import pretrained; print('Denoiser installed successfu
 ```
 
 **预期结果**：
+
 - Denoiser 安装成功
 - 可以正常导入
 
@@ -159,6 +168,7 @@ ls -lh
 ```
 
 **预期结果**：
+
 - 模型文件下载成功
 - 解压后包含 `checkpoints/` 和 `config.ini`
 
@@ -197,6 +207,7 @@ PYEOF
 ```
 
 **预期结果**：
+
 - 模型可以正常加载
 - 无错误信息
 
@@ -226,6 +237,7 @@ PYEOF
 ```
 
 **预期结果**：
+
 - Denoiser 模型可以正常加载
 - 模型会自动下载到 `~/.cache/torch/hub/checkpoints/`
 
@@ -276,14 +288,14 @@ def process_with_deepfilternet(input_path, output_path, model=None, df_state=Non
     """第一步: 使用 DeepFilterNet 进行降噪"""
     if not DEEPFILTERNET_AVAILABLE:
         raise ImportError("DeepFilterNet 不可用")
-    
+
     print("=" * 60)
     print("第一步: DeepFilterNet (主攻降噪)")
     print("=" * 60)
-    
+
     if device is None:
         device = get_device()
-    
+
     if model is None or df_state is None:
         print("加载 DeepFilterNet 模型...")
         model_path = "/root/autodl-tmp/extract-vocals/models/DeepFilterNet3"
@@ -295,25 +307,25 @@ def process_with_deepfilternet(input_path, output_path, model=None, df_state=Non
         )
         model = model.to(device)
         print(f"模型已加载到设备: {device}")
-    
+
     print(f"加载音频文件: {input_path}")
     audio, meta = load_audio(input_path, sr=48000)
     audio = audio.to(device)
-    
+
     print("正在进行降噪处理...")
     with torch.no_grad():
         enhanced = df_enhance(
-            model, 
-            df_state, 
-            audio, 
+            model,
+            df_state,
+            audio,
             pad=True,
             atten_lim_db=None
         )
-    
+
     print(f"保存第一步处理结果: {output_path}")
     save_audio(output_path, enhanced, sr=48000)
     print("第一步完成！\n")
-    
+
     return enhanced, model, df_state, device
 
 
@@ -321,52 +333,52 @@ def process_with_denoiser(input_path, output_path, model=None, device=None):
     """第二步: 使用 Denoiser 进行去混响"""
     if not DENOISER_AVAILABLE:
         raise ImportError("Denoiser 不可用")
-    
+
     print("=" * 60)
     print("第二步: Denoiser (主攻去混响)")
     print("=" * 60)
-    
+
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     if model is None:
         print("加载 Denoiser 模型...")
         model = pretrained.dns64(pretrained=True)
         model = model.to(device)
         print(f"模型已加载到设备: {device}")
-    
+
     print(f"加载音频文件: {input_path}")
     wav, orig_sr = sf.read(input_path)
-    
+
     if len(wav.shape) > 1:
         wav = wav[:, 0]
-    
+
     wav_tensor = torch.from_numpy(wav).float()
-    
+
     target_sr = 16000
     if orig_sr != target_sr:
         print(f"重采样: {orig_sr} Hz -> {target_sr} Hz")
         from torchaudio.transforms import Resample
         resampler = Resample(orig_sr, target_sr)
         wav_tensor = resampler(wav_tensor)
-    
+
     if wav_tensor.dim() == 1:
         wav_tensor = wav_tensor.unsqueeze(0)
-    
+
     wav_tensor = wav_tensor.to(device)
-    
+
     print("正在进行去混响处理...")
     with torch.no_grad():
         enhanced = model(wav_tensor[None])[0]
-    
+
     enhanced_np = enhanced.cpu().numpy()
     if enhanced_np.shape[0] == 1:
         enhanced_np = enhanced_np[0]
-    
+
     print(f"保存最终处理结果: {output_path}")
     sf.write(output_path, enhanced_np, target_sr)
     print("第二步完成！\n")
-    
+
     return enhanced_np, model, device
 
 
@@ -374,7 +386,7 @@ def process_audio_two_stage(input_path, output_path, device=None):
     """两步处理流程: DeepFilterNet -> Denoiser"""
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     print("=" * 60)
     print("方案 A: DeepFilterNet -> Denoiser 两步处理流程")
     print("=" * 60)
@@ -382,27 +394,27 @@ def process_audio_two_stage(input_path, output_path, device=None):
     print(f"输出文件: {output_path}")
     print(f"使用设备: {device}")
     print()
-    
+
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"输入文件不存在: {input_path}")
-    
+
     temp_dir = tempfile.gettempdir()
     temp_path = os.path.join(temp_dir, f"df_temp_{os.path.basename(input_path)}")
-    
+
     try:
         enhanced_df, model_df, df_state, device = process_with_deepfilternet(
             input_path, temp_path, device=device
         )
-        
+
         enhanced_final, model_denoiser, device = process_with_denoiser(
             temp_path, output_path, device=device
         )
-        
+
         print("=" * 60)
         print("处理完成！")
         print("=" * 60)
         print(f"最终结果已保存到: {output_path}")
-        
+
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
@@ -415,16 +427,16 @@ def main():
     )
     parser.add_argument("input", type=str, help="输入音频文件路径")
     parser.add_argument("output", type=str, help="输出音频文件路径")
-    parser.add_argument("--device", type=str, default=None, 
+    parser.add_argument("--device", type=str, default=None,
                        help="设备 (cuda/cpu)，默认自动选择")
-    
+
     args = parser.parse_args()
-    
+
     if args.device:
         device = torch.device(args.device)
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     try:
         process_audio_two_stage(args.input, args.output, device=device)
         return 0
@@ -479,22 +491,22 @@ def process_audio(input_path, output_path=None, device=None):
     if not os.path.exists(input_path):
         logger.error(f"输入文件不存在: {input_path}")
         return None
-    
+
     if output_path is None:
         base_name = os.path.splitext(os.path.basename(input_path))[0]
         output_dir = os.path.dirname(input_path)
         output_path = os.path.join(output_dir, f"{base_name}_clean.wav")
-    
+
     output_dir = os.path.dirname(output_path)
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
-    
+
     cmd = [VENV_PYTHON, PROCESS_SCRIPT, input_path, output_path]
     if device:
         cmd.extend(["--device", device])
-    
+
     logger.info(f"开始处理音频: {input_path} -> {output_path}")
-    
+
     try:
         result = subprocess.run(
             cmd,
@@ -503,7 +515,7 @@ def process_audio(input_path, output_path=None, device=None):
             text=True,
             timeout=300
         )
-        
+
         if result.returncode == 0:
             if os.path.exists(output_path):
                 logger.info(f"音频处理成功: {output_path}")
@@ -515,7 +527,7 @@ def process_audio(input_path, output_path=None, device=None):
             logger.error(f"音频处理失败，返回码: {result.returncode}")
             logger.error(f"错误输出: {result.stderr}")
             return None
-            
+
     except subprocess.TimeoutExpired:
         logger.error("音频处理超时（超过5分钟）")
         return None
@@ -529,15 +541,15 @@ def main():
         description="音频处理服务 - DeepFilterNet -> Denoiser 两步处理"
     )
     parser.add_argument("input", type=str, help="输入音频文件路径")
-    parser.add_argument("output", type=str, nargs="?", default=None, 
+    parser.add_argument("output", type=str, nargs="?", default=None,
                        help="输出音频文件路径（可选）")
     parser.add_argument("--device", type=str, default=None,
                        help="设备 (cuda/cpu)，默认自动选择")
-    
+
     args = parser.parse_args()
-    
+
     result = process_audio(args.input, args.output, args.device)
-    
+
     if result:
         print(result)
         sys.exit(0)
@@ -605,6 +617,7 @@ PYEOF
 ```
 
 **预期结果**：
+
 - 所有模块都可以正常导入
 - 无错误信息
 
@@ -685,6 +698,7 @@ python3 /root/autodl-tmp/extract-vocals/audio_processor_service.py input.wav out
 **现象**：显示 "sm_120 is not compatible" 警告
 
 **解决**：
+
 - 这是正常的，PyTorch 2.5.0 通过兼容模式可以运行
 - 测试 GPU 计算功能是否正常
 - 如果仍有问题，可以尝试使用 CPU 模式：`--device cpu`
@@ -692,6 +706,7 @@ python3 /root/autodl-tmp/extract-vocals/audio_processor_service.py input.wav out
 ### 问题 2: 模型下载失败
 
 **解决**：
+
 - 检查网络连接
 - 手动下载模型文件（见步骤 7）
 - 模型会下载到 `~/.cache/torch/hub/checkpoints/` 目录
@@ -699,6 +714,7 @@ python3 /root/autodl-tmp/extract-vocals/audio_processor_service.py input.wav out
 ### 问题 3: 虚拟环境 Python 找不到
 
 **解决**：
+
 - 确认虚拟环境已创建：`ls -la venv/bin/python3`
 - 重新创建虚拟环境：`python3 -m venv venv`
 
@@ -720,6 +736,7 @@ python3 /root/autodl-tmp/extract-vocals/audio_processor_service.py input.wav out
 ## 部署完成
 
 部署完成后，系统已具备：
+
 - ✅ DeepFilterNet 降噪功能
 - ✅ Denoiser 去混响功能
 - ✅ 两步处理流程脚本
@@ -727,7 +744,7 @@ python3 /root/autodl-tmp/extract-vocals/audio_processor_service.py input.wav out
 
 ---
 
-**部署日期**：2025年11月24日  
+**部署日期**：2025 年 11 月 24 日  
 **服务器**：374  
 **部署路径**：`/root/autodl-tmp/extract-vocals`
 
@@ -745,6 +762,7 @@ bash complete_deployment_script.sh
 ```
 
 脚本会自动完成所有步骤，包括：
+
 - 创建虚拟环境
 - 安装所有依赖
 - 下载模型
@@ -758,6 +776,7 @@ bash complete_deployment_script.sh
 ### 执行方式
 
 **方法 1：使用自动化脚本（推荐）**
+
 ```bash
 cd /root/autodl-tmp/extract-vocals
 bash complete_deployment_script.sh
@@ -771,29 +790,35 @@ bash complete_deployment_script.sh
 请在执行后填写以下信息：
 
 - [ ] **步骤 1-2**：环境检查和虚拟环境创建
-  - Python 版本：___________
-  - GPU 信息：___________
+
+  - Python 版本：\***\*\_\_\_\*\***
+  - GPU 信息：\***\*\_\_\_\*\***
   - 虚拟环境创建：✅ / ❌
 
 - [ ] **步骤 3**：PyTorch 安装
-  - PyTorch 版本：___________
+
+  - PyTorch 版本：\***\*\_\_\_\*\***
   - CUDA 可用：✅ / ❌
   - GPU 计算测试：✅ / ❌
 
 - [ ] **步骤 4-6**：依赖安装
+
   - DeepFilterNet：✅ / ❌
   - Denoiser：✅ / ❌
   - 其他依赖：✅ / ❌
 
 - [ ] **步骤 7**：模型下载
+
   - 模型下载：✅ / ❌
-  - 模型路径：___________
+  - 模型路径：\***\*\_\_\_\*\***
 
 - [ ] **步骤 8-9**：模型测试
+
   - DeepFilterNet3 加载：✅ / ❌
   - Denoiser 加载：✅ / ❌
 
 - [ ] **步骤 10-11**：脚本创建
+
   - process_audio.py：✅ / ❌
   - audio_processor_service.py：✅ / ❌
 
@@ -803,11 +828,13 @@ bash complete_deployment_script.sh
 
 ### 遇到的问题及解决方案
 
-**问题 1**：___________
-- 解决方案：___________
+**问题 1**：\***\*\_\_\_\*\***
 
-**问题 2**：___________
-- 解决方案：___________
+- 解决方案：\***\*\_\_\_\*\***
+
+**问题 2**：\***\*\_\_\_\*\***
+
+- 解决方案：\***\*\_\_\_\*\***
 
 ---
 
@@ -827,4 +854,3 @@ python3 audio_processor_service.py --help
 ```
 
 如果两个脚本都能正常显示帮助信息，说明部署成功。
-

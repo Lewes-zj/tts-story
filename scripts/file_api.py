@@ -12,8 +12,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
-=======
 # 尝试导入pydub用于音频格式转换
 try:
     from pydub import AudioSegment
@@ -35,8 +33,6 @@ def check_ffmpeg_available():
 FFMPEG_AVAILABLE, FFPROBE_PATH = check_ffmpeg_available()
 if not FFMPEG_AVAILABLE:
     logger.warning("ffmpeg/ffprobe未安装，webm格式转换将不可用")
-
->>>>>>> 8fa09d4 (update)
 router = APIRouter(prefix="/api/files", tags=["文件管理"])
 
 # 创建DAO实例
@@ -63,31 +59,6 @@ async def upload_file(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
 ):
-<<<<<<< HEAD
-    """上传录音文件"""
-    try:
-        user_id = current_user["user_id"]
-        
-        # 生成唯一文件名
-        original_filename = file.filename
-        file_extension = os.path.splitext(original_filename)[1] if original_filename else ""
-        unique_filename = f"{uuid.uuid4()}{file_extension}"
-        file_path = os.path.join(UPLOAD_DIR, unique_filename)
-        
-        # 保存文件
-        with open(file_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-        
-        # 保存文件信息到数据库
-        file_url = f"{FILE_URL_PREFIX}{unique_filename}"  # 临时使用文件名，实际应该使用ID
-        file_id = file_dao.insert(
-            user_id=user_id,
-            file_name=original_filename or unique_filename,
-            file_url=file_url,
-            file_type=file.content_type,
-            file_size=len(content)
-=======
     """上传录音文件，自动转换为wav格式"""
     try:
         user_id = current_user["user_id"]
@@ -237,28 +208,18 @@ async def upload_file(
             file_url=file_url,
             file_type="audio/wav",
             file_size=content_size
->>>>>>> 8fa09d4 (update)
         )
         
         # 更新URL为使用ID
         actual_url = f"{FILE_URL_PREFIX}{file_id}"
-<<<<<<< HEAD
-        # 注意：这里应该更新数据库中的file_url，但为了简化，直接返回
-=======
->>>>>>> 8fa09d4 (update)
         
         return FileUploadResponse(
             id=str(file_id),
             url=actual_url,
-<<<<<<< HEAD
-            name=original_filename or unique_filename
-        )
-=======
             name=unique_filename
         )
     except HTTPException:
         raise
->>>>>>> 8fa09d4 (update)
     except Exception as e:
         logger.error(f"文件上传失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")

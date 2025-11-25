@@ -107,8 +107,6 @@ async def get_story_detail(story_id: int):
         logger.error(f"获取故事详情失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取故事详情失败: {str(e)}")
 
-<<<<<<< HEAD
-=======
 
 @router.get("/{story_id}/path", response_model=StoryPathResponse)
 async def get_story_path(story_id: int):
@@ -129,4 +127,3 @@ async def get_story_path(story_id: int):
         logger.error(f"获取故事路径失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取故事路径失败: {str(e)}")
 
->>>>>>> 8fa09d4 (update)
