@@ -160,12 +160,13 @@ async def get_character_audio(character_id: int, current_user: dict = Depends(ge
         if not user_id:
             raise HTTPException(status_code=401, detail="用户信息无效")
 
-        # 验证角色是否属于当前用户
+        # 验证角色是否存在
         character = character_dao.find_by_id(character_id)
         if not character:
             raise HTTPException(status_code=404, detail="角色不存在")
 
-        if character["user_id"] != user_id:
+        # 验证角色是否属于当前用户
+        if not character_dao.belongs_to_user(character_id, user_id):
             raise HTTPException(status_code=403, detail="无权访问该角色")
 
         # 查询角色的音频信息

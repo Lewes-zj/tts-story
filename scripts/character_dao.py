@@ -56,3 +56,16 @@ class CharacterDAO(BaseDAO):
         finally:
             conn.close()
 
+    def belongs_to_user(self, role_id: int, user_id: int) -> bool:
+        """检查角色是否属于指定用户"""
+        conn = self._get_db_connection()
+        try:
+            with conn.cursor() as cursor:
+                sql = """SELECT COUNT(*) as count FROM user_role 
+                         WHERE role_id = %s AND user_id = %s AND is_delete = 0"""
+                cursor.execute(sql, (role_id, user_id))
+                result = cursor.fetchone()
+                return result[0] > 0 if result else False
+        finally:
+            conn.close()
+
