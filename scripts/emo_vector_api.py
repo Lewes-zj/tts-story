@@ -7,7 +7,7 @@ import sys
 import os
 import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import os
@@ -25,8 +25,9 @@ from scripts.user_emo_audio_dao import UserEmoAudioDAO
 # # 导入情绪向量配置DAO
 # from scripts.emo_vector_config_dao import EmoVectorConfigDAO
 
-# 创建FastAPI应用实例
-app = FastAPI(title="情绪向量处理API", description="根据情绪向量生成语音的API")
+# 创建APIRouter实例
+from fastapi import APIRouter
+router = APIRouter(prefix="/emo_vector", tags=["情绪向量处理"])
 
 # 创建处理器和DAO实例
 logger.info("初始化EmoVectorProcessor...")
@@ -65,7 +66,7 @@ class EmoVectorResponse(BaseModel):
     generated_files: List[GeneratedFile]
 
 
-@app.post(
+@router.post(
     "/process_emo_vector/", response_model=EmoVectorResponse, summary="处理情绪向量"
 )
 async def process_emo_vector(request: EmoVectorRequest):
@@ -141,7 +142,7 @@ async def process_emo_vector(request: EmoVectorRequest):
         raise HTTPException(status_code=500, detail=f"处理情绪向量时发生错误: {str(e)}")
 
 
-@app.get("/", summary="API根路径")
+@router.get("/", summary="API根路径")
 async def root():
     """
     API根路径
@@ -153,9 +154,12 @@ async def root():
     return {"message": "欢迎使用情绪向量处理API", "version": "1.0.0"}
 
 
-# 如果直接运行此文件，则启动服务器
+# 如果直接运行此文件，则启动服务器（用于测试）
 if __name__ == "__main__":
+    from fastapi import FastAPI
     import uvicorn
+    test_app = FastAPI(title="情绪向量处理API", description="根据情绪向量生成语音的API")
+    test_app.include_router(router)
     logger.info("直接运行emo_vector_api.py，启动服务器...")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(test_app, host="0.0.0.0", port=8000)
     

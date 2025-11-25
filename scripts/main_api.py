@@ -37,11 +37,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 直接导入路由处理器，而不是导入整个应用
+# 导入路由
 # 情绪向量处理API路由
-from scripts.emo_vector_api import EmoVectorRequest, GeneratedFile, EmoVectorResponse
-from scripts.emo_vector_api import process_emo_vector as emo_process_emo_vector
-from scripts.emo_vector_api import root as emo_root
+from scripts.emo_vector_api import router as emo_vector_router
 
 # 文件上传API路由
 from scripts.file_upload_api import upload_file as file_upload_file
@@ -68,12 +66,7 @@ except ImportError:
     story_book_root = None
 
 # 添加情绪向量处理API路由
-app.post(
-    "/emo_vector/process_emo_vector/",
-    response_model=EmoVectorResponse,
-    summary="处理情绪向量",
-)(emo_process_emo_vector)
-app.get("/emo_vector/", summary="情绪向量API根路径")(emo_root)
+app.include_router(emo_vector_router)
 
 # 添加文件上传API路由
 app.post("/file/upload/", summary="上传单个文件")(file_upload_file)
