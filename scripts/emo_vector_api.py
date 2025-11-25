@@ -22,6 +22,9 @@ from scripts.emo_vector_processor import EmoVectorProcessor
 # 导入用户情绪音频DAO
 from scripts.user_emo_audio_dao import UserEmoAudioDAO
 
+# 导入用户输入音频DAO
+from scripts.user_input_audio_dao import UserInputAudioDAO
+
 # # 导入情绪向量配置DAO
 # from scripts.emo_vector_config_dao import EmoVectorConfigDAO
 
@@ -34,6 +37,8 @@ logger.info("初始化EmoVectorProcessor...")
 emo_processor = EmoVectorProcessor()
 logger.info("初始化UserEmoAudioDAO...")
 user_emo_dao = UserEmoAudioDAO()
+logger.info("初始化UserInputAudioDAO...")
+user_input_audio_dao = UserInputAudioDAO()
 # logger.info("初始化EmoVectorConfigDAO...")
 # emo_config_dao = EmoVectorConfigDAO()
 logger.info("所有组件初始化完成")
@@ -44,8 +49,7 @@ class EmoVectorRequest(BaseModel):
 
     user_id: int
     role_id: int
-    clean_input_audio: str
-    text: str
+    # clean_input_audio 和 text 不再需要前端传递，后端会从数据库查询或使用默认值
 
 
 class GeneratedFile(BaseModel):
@@ -80,14 +84,30 @@ async def process_emo_vector(request: EmoVectorRequest):
         EmoVectorResponse: 处理结果，包含生成的音频文件信息
     """
     logger.info(f"收到处理情绪向量请求: user_id={request.user_id}, role_id={request.role_id}")
-    logger.info(f"输入音频路径: {request.clean_input_audio}")
-    logger.info(f"文本内容: {request.text}")
     
     try:
+        # 从数据库查询 clean_input_audio
+        logger.info(f"从数据库查询用户输入音频: user_id={request.user_id}, role_id={request.role_id}")
+        audio_info = user_input_audio_dao.find_by_user_and_role(request.user_id, request.role_id)
+        
+        if not audio_info or not audio_info.get("clean_input"):
+            logger.error(f"未找到用户输入音频: user_id={request.user_id}, role_id={request.role_id}")
+            raise HTTPException(
+                status_code=404, 
+                detail="角色音频文件不存在，请先为角色上传音频并等待处理完成"
+            )
+        
+        clean_input_audio = audio_info.get("clean_input")
+        logger.info(f"从数据库获取到输入音频路径: {clean_input_audio}")
+        
+        # 使用固定的文本内容
+        text = "床前明月光，疑是地上霜。举头望明月，低头思故乡。这首古诗陪伴我们成长，承载着无数人的美好回忆。"
+        logger.info(f"使用固定文本内容: {text}")
+        
         # 使用处理器生成情绪向量语音
         logger.info("开始调用emo_processor.process_emo_vectors处理情绪向量...")
         result_list = emo_processor.process_emo_vectors(
-            input_audio=request.clean_input_audio, text=request.text
+            input_audio=clean_input_audio, text=text
         )
         logger.info(f"emo_processor处理完成，共生成{len(result_list)}个结果")
 
@@ -128,7 +148,7 @@ async def process_emo_vector(request: EmoVectorRequest):
         response = EmoVectorResponse(
             user_id=request.user_id,
             role_id=request.role_id,
-            text=request.text,
+            text=text,
             generated_files=saved_records,
         )
         logger.info("返回响应数据")
