@@ -18,6 +18,11 @@
 
 ## 安装依赖
 
+<<<<<<< HEAD
+=======
+### Python依赖
+
+>>>>>>> 8fa09d4 (update)
 ```bash
 pip install -r requirements.txt
 ```
@@ -26,6 +31,46 @@ pip install -r requirements.txt
 - `PyJWT>=2.8.0` - JWT token生成和验证
 - `email-validator>=2.0.0` - 邮箱格式验证
 - `bcrypt>=4.0.0` - 密码加密
+<<<<<<< HEAD
+=======
+- `pydub>=0.25.1` - 音频格式转换（用于将webm转换为wav）
+
+### 系统依赖（音频格式转换需要）
+
+**重要**：如果需要在创建角色时上传webm格式的录音，需要安装ffmpeg：
+
+#### Ubuntu/Debian系统
+```bash
+sudo apt-get update
+sudo apt-get install ffmpeg
+```
+
+#### CentOS/RHEL系统
+```bash
+sudo yum install ffmpeg
+# 或者使用dnf（较新版本）
+sudo dnf install ffmpeg
+```
+
+#### macOS系统
+```bash
+brew install ffmpeg
+```
+
+#### Windows系统
+1. 访问 https://ffmpeg.org/download.html
+2. 下载Windows版本的ffmpeg
+3. 解压并添加到系统PATH环境变量中
+
+#### 验证安装
+安装完成后，可以通过以下命令验证：
+```bash
+ffmpeg -version
+ffprobe -version
+```
+
+如果命令执行成功，说明ffmpeg已正确安装。
+>>>>>>> 8fa09d4 (update)
 
 ## 启动服务
 

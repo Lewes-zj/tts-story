@@ -1,0 +1,12 @@
+# 故事ID到JSON文件路径的映射配置
+# 格式：story_id: 相对路径（相对于项目根目录）
+# 新增故事时，只需在此文件中添加映射关系，无需重启服务
+
+story_path_mapping:
+  1: "db/yiqianlingyiye.json"  # 一千零一夜
+  2: "db/maihuochai.json"      # 卖火柴的小女孩
+  3: "db/xiaohongmao.json"     # 小红帽
+  4: "db/xiaohongmao_en.json"  # 小红帽（英文版）
+  # 可以继续添加更多映射关系，例如：
+  # 5: "db/new_story.json"     # 新故事
+

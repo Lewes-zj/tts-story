@@ -12,6 +12,31 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+<<<<<<< HEAD
+=======
+# 尝试导入pydub用于音频格式转换
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except ImportError:
+    PYDUB_AVAILABLE = False
+    logger.warning("pydub库未安装，无法进行音频格式转换")
+
+# 检查ffmpeg/ffprobe是否可用
+def check_ffmpeg_available():
+    """检查ffmpeg/ffprobe是否可用"""
+    import shutil
+    # 检查ffprobe（pydub使用ffprobe来检测音频格式）
+    ffprobe_path = shutil.which("ffprobe")
+    if ffprobe_path:
+        return True, ffprobe_path
+    return False, None
+
+FFMPEG_AVAILABLE, FFPROBE_PATH = check_ffmpeg_available()
+if not FFMPEG_AVAILABLE:
+    logger.warning("ffmpeg/ffprobe未安装，webm格式转换将不可用")
+
+>>>>>>> 8fa09d4 (update)
 router = APIRouter(prefix="/api/files", tags=["文件管理"])
 
 # 创建DAO实例
@@ -38,6 +63,7 @@ async def upload_file(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
 ):
+<<<<<<< HEAD
     """上传录音文件"""
     try:
         user_id = current_user["user_id"]
@@ -61,17 +87,178 @@ async def upload_file(
             file_url=file_url,
             file_type=file.content_type,
             file_size=len(content)
+=======
+    """上传录音文件，自动转换为wav格式"""
+    try:
+        user_id = current_user["user_id"]
+        
+        # 读取文件内容
+        content = await file.read()
+        if not content or len(content) == 0:
+            raise HTTPException(status_code=400, detail="上传的文件为空")
+        
+        original_filename = file.filename or "recording"
+        file_extension = os.path.splitext(original_filename)[1].lower()
+        
+        logger.info(f"开始上传文件: {original_filename}, 扩展名: {file_extension}, 大小: {len(content)} bytes, PYDUB_AVAILABLE: {PYDUB_AVAILABLE}")
+        
+        # 生成唯一文件名（wav格式）
+        unique_filename = f"{uuid.uuid4()}.wav"
+        wav_file_path = os.path.join(UPLOAD_DIR, unique_filename)
+        
+        # 如果上传的是webm或其他格式，转换为wav
+        if file_extension in ['.webm', '.ogg', '.mp3', '.m4a']:
+            if not PYDUB_AVAILABLE:
+                # pydub不可用，返回错误提示
+                raise HTTPException(
+                    status_code=500,
+                    detail="音频格式转换功能不可用，请安装pydub库: pip install pydub"
+                )
+            
+            # 检查webm格式是否需要ffmpeg
+            if file_extension == '.webm' and not FFMPEG_AVAILABLE:
+                raise HTTPException(
+                    status_code=500,
+                    detail="webm格式转换需要ffmpeg支持。请安装ffmpeg:\n"
+                           "Ubuntu/Debian: sudo apt-get install ffmpeg\n"
+                           "CentOS/RHEL: sudo yum install ffmpeg\n"
+                           "macOS: brew install ffmpeg\n"
+                           "Windows: 下载并安装 https://ffmpeg.org/download.html"
+                )
+            
+            temp_file_path = None
+            try:
+                # 先保存原始文件到临时位置
+                temp_file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}{file_extension}")
+                with open(temp_file_path, "wb") as f:
+                    f.write(content)
+                
+                # 使用pydub转换为wav
+                try:
+                    # 尝试指定格式读取
+                    audio = AudioSegment.from_file(temp_file_path, format=file_extension[1:])
+                except Exception as format_error:
+                    # 如果格式识别失败，尝试不指定格式让pydub自动识别
+                    logger.warning(f"指定格式读取失败，尝试自动识别: {str(format_error)}")
+                    try:
+                        audio = AudioSegment.from_file(temp_file_path)
+                    except Exception as auto_error:
+                        # 如果自动识别也失败，检查是否是ffmpeg问题
+                        error_str = str(auto_error).lower()
+                        if 'ffprobe' in error_str or 'ffmpeg' in error_str:
+                            raise HTTPException(
+                                status_code=500,
+                                detail="音频格式转换失败，需要ffmpeg支持。请安装ffmpeg:\n"
+                                       "Ubuntu/Debian: sudo apt-get install ffmpeg\n"
+                                       "CentOS/RHEL: sudo yum install ffmpeg\n"
+                                       "macOS: brew install ffmpeg\n"
+                                       "Windows: 下载并安装 https://ffmpeg.org/download.html"
+                            )
+                        raise
+                
+                audio.export(wav_file_path, format="wav")
+                
+                # 更新文件大小
+                content_size = os.path.getsize(wav_file_path)
+                logger.info(f"音频已转换为wav格式: {original_filename} -> {unique_filename}")
+            except HTTPException:
+                # 重新抛出HTTP异常
+                raise
+            except Exception as e:
+                logger.error(f"音频格式转换失败: {str(e)}")
+                # 清理临时文件
+                if temp_file_path and os.path.exists(temp_file_path):
+                    try:
+                        os.remove(temp_file_path)
+                    except:
+                        pass
+                # 转换失败，抛出错误
+                error_str = str(e).lower()
+                if 'ffprobe' in error_str or 'ffmpeg' in error_str:
+                    raise HTTPException(
+                        status_code=500, 
+                        detail="音频格式转换失败，需要ffmpeg支持。请安装ffmpeg:\n"
+                               "Ubuntu/Debian: sudo apt-get install ffmpeg\n"
+                               "CentOS/RHEL: sudo yum install ffmpeg\n"
+                               "macOS: brew install ffmpeg\n"
+                               "Windows: 下载并安装 https://ffmpeg.org/download.html"
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=500, 
+                        detail=f"音频格式转换失败: {str(e)}"
+                    )
+        elif file_extension == '.wav':
+            # 如果已经是wav格式，直接保存
+            with open(wav_file_path, "wb") as f:
+                f.write(content)
+            content_size = len(content)
+        elif not file_extension:
+            # 没有扩展名，尝试作为webm处理（浏览器录音通常是webm）
+            logger.warning(f"文件没有扩展名，尝试作为webm格式处理: {original_filename}")
+            if PYDUB_AVAILABLE:
+                temp_file_path = None
+                try:
+                    temp_file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}.webm")
+                    with open(temp_file_path, "wb") as f:
+                        f.write(content)
+                    
+                    # 尝试自动识别格式
+                    audio = AudioSegment.from_file(temp_file_path)
+                    audio.export(wav_file_path, format="wav")
+                    
+                    content_size = os.path.getsize(wav_file_path)
+                    logger.info(f"音频已转换为wav格式（无扩展名）: {original_filename} -> {unique_filename}")
+                except Exception as e:
+                    logger.error(f"音频格式转换失败: {str(e)}")
+                    if temp_file_path and os.path.exists(temp_file_path):
+                        try:
+                            os.remove(temp_file_path)
+                        except:
+                            pass
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"音频格式转换失败: {str(e)}"
+                    )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="音频格式转换功能不可用，请安装pydub库和ffmpeg"
+                )
+        else:
+            # 不支持其他格式，返回错误
+            raise HTTPException(status_code=400, detail=f"不支持的音频格式: {file_extension}，请使用webm或wav格式")
+        
+        # 保存文件信息到数据库
+        file_url = f"{FILE_URL_PREFIX}{unique_filename}"
+        file_id = file_dao.insert(
+            user_id=user_id,
+            file_name=unique_filename,  # 使用转换后的wav文件名
+            file_url=file_url,
+            file_type="audio/wav",
+            file_size=content_size
+>>>>>>> 8fa09d4 (update)
         )
         
         # 更新URL为使用ID
         actual_url = f"{FILE_URL_PREFIX}{file_id}"
+<<<<<<< HEAD
         # 注意：这里应该更新数据库中的file_url，但为了简化，直接返回
+=======
+>>>>>>> 8fa09d4 (update)
         
         return FileUploadResponse(
             id=str(file_id),
             url=actual_url,
+<<<<<<< HEAD
             name=original_filename or unique_filename
         )
+=======
+            name=unique_filename
+        )
+    except HTTPException:
+        raise
+>>>>>>> 8fa09d4 (update)
     except Exception as e:
         logger.error(f"文件上传失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")

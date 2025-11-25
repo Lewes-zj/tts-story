@@ -41,6 +41,14 @@ class StoryDetailResponse(BaseModel):
     content: str
 
 
+<<<<<<< HEAD
+=======
+class StoryPathResponse(BaseModel):
+    """故事路径响应"""
+    story_path: Optional[str] = None
+
+
+>>>>>>> 8fa09d4 (update)
 @router.get("", response_model=StoryListResponse)
 async def get_story_list(
     category: Optional[str] = Query(None, description="分类筛选"),
@@ -99,3 +107,26 @@ async def get_story_detail(story_id: int):
         logger.error(f"获取故事详情失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取故事详情失败: {str(e)}")
 
+<<<<<<< HEAD
+=======
+
+@router.get("/{story_id}/path", response_model=StoryPathResponse)
+async def get_story_path(story_id: int):
+    """获取故事的JSON文件路径"""
+    try:
+        # 验证故事是否存在
+        story = story_dao.find_by_id(story_id)
+        if not story:
+            raise HTTPException(status_code=404, detail="故事不存在")
+        
+        # 获取故事路径
+        story_path = story_dao.get_story_path(story_id)
+        
+        return StoryPathResponse(story_path=story_path)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取故事路径失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取故事路径失败: {str(e)}")
+
+>>>>>>> 8fa09d4 (update)
