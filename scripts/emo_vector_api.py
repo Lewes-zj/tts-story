@@ -43,6 +43,9 @@ user_input_audio_dao = UserInputAudioDAO()
 # emo_config_dao = EmoVectorConfigDAO()
 logger.info("所有组件初始化完成")
 
+# 用于防止重复处理的请求ID集合（简单的内存去重）
+processing_requests = set()
+
 
 class EmoVectorRequest(BaseModel):
     """情绪向量处理请求模型"""
@@ -84,6 +87,20 @@ async def process_emo_vector(request: EmoVectorRequest):
         EmoVectorResponse: 处理结果，包含生成的音频文件信息
     """
     logger.info(f"收到处理情绪向量请求: user_id={request.user_id}, role_id={request.role_id}")
+    
+    # 创建请求唯一标识，防止重复处理
+    request_id = f"{request.user_id}_{request.role_id}"
+    
+    # 检查是否正在处理相同的请求
+    if request_id in processing_requests:
+        logger.warning(f"检测到重复请求，忽略: user_id={request.user_id}, role_id={request.role_id}")
+        raise HTTPException(
+            status_code=409, 
+            detail="该请求正在处理中，请勿重复提交"
+        )
+    
+    # 标记请求为处理中
+    processing_requests.add(request_id)
     
     try:
         # 从数据库查询 clean_input_audio
@@ -154,12 +171,19 @@ async def process_emo_vector(request: EmoVectorRequest):
         logger.info("返回响应数据")
         return response
 
+    except HTTPException:
+        # HTTPException 需要重新抛出，finally块会清理请求标记
+        raise
     except ValueError as e:
         logger.error(f"参数值错误: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"处理情绪向量时发生未预期的错误: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"处理情绪向量时发生错误: {str(e)}")
+    finally:
+        # 确保无论成功还是失败，都清理请求标记
+        processing_requests.discard(request_id)
+        logger.debug(f"清理请求标记: {request_id}")
 
 
 @router.get("/", summary="API根路径")

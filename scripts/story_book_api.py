@@ -23,6 +23,9 @@ except ImportError:
 
 app = FastAPI(title="有声故事书生成API", description="根据用户选择的角色和故事生成有声故事书")
 
+# 用于防止重复处理的请求ID集合（简单的内存去重）
+processing_requests = set()
+
 
 class StoryBookRequest(BaseModel):
     """有声故事书生成请求模型"""
@@ -50,8 +53,27 @@ async def generate_story_book(request: StoryBookRequest):
     Returns:
         StoryBookResponse: 生成结果
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if not STORY_BOOK_AVAILABLE:
         raise HTTPException(status_code=500, detail="有声故事书功能不可用")
+
+    # 创建请求唯一标识，防止重复处理
+    # 使用 user_id, role_id, story_path 组合作为唯一标识
+    request_id = f"{request.user_id}_{request.role_id}_{request.story_path}"
+    
+    # 检查是否正在处理相同的请求
+    if request_id in processing_requests:
+        logger.warning(f"检测到重复请求，忽略: user_id={request.user_id}, role_id={request.role_id}, story_path={request.story_path}")
+        raise HTTPException(
+            status_code=409, 
+            detail="该请求正在处理中，请勿重复提交"
+        )
+    
+    # 标记请求为处理中
+    processing_requests.add(request_id)
+    logger.info(f"开始处理有声故事书生成请求: user_id={request.user_id}, role_id={request.role_id}, story_path={request.story_path}")
 
     try:
         # 创建生成器实例
@@ -66,19 +88,29 @@ async def generate_story_book(request: StoryBookRequest):
         )
 
         if story_book_path:
+            logger.info(f"有声故事书生成成功: {story_book_path}")
             return StoryBookResponse(
                 success=True,
                 message="有声故事书生成成功",
                 story_book_path=story_book_path
             )
         else:
+            logger.error("有声故事书生成失败：返回路径为空")
             return StoryBookResponse(
                 success=False,
                 message="有声故事书生成失败"
             )
 
+    except HTTPException:
+        # HTTPException 需要重新抛出，finally块会清理请求标记
+        raise
     except Exception as e:
+        logger.error(f"生成有声故事书时出错: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"生成有声故事书时出错: {str(e)}")
+    finally:
+        # 确保无论成功还是失败，都清理请求标记
+        processing_requests.discard(request_id)
+        logger.debug(f"清理请求标记: {request_id}")
 
 # 为了方便测试，添加一个根路径
 
