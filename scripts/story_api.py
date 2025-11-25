@@ -41,14 +41,11 @@ class StoryDetailResponse(BaseModel):
     content: str
 
 
-<<<<<<< HEAD
-=======
 class StoryPathResponse(BaseModel):
     """故事路径响应"""
     story_path: Optional[str] = None
 
 
->>>>>>> 8fa09d4 (update)
 @router.get("", response_model=StoryListResponse)
 async def get_story_list(
     category: Optional[str] = Query(None, description="分类筛选"),
