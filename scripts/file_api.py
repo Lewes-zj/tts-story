@@ -40,7 +40,9 @@ file_dao = FileDAO()
 
 # 文件上传配置
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/tmp/tts-story/uploads")
-OUTPUTS_DIR = "outputs"
+# 获取项目根目录，构建outputs目录的绝对路径
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUTS_DIR = os.path.join(project_root, "outputs")
 FILE_URL_PREFIX = os.getenv("FILE_URL_PREFIX", "http://localhost:8080/api/files/audio/")
 
 
@@ -77,7 +79,10 @@ async def upload_file(
         
         # 生成唯一文件名（wav格式，使用时间戳，与audio_tts.py保持一致）
         unique_filename = f"{int(time.time() * 1000)}.wav"
+        # 使用绝对路径保存文件
         wav_file_path = os.path.join(OUTPUTS_DIR, unique_filename)
+        # 确保路径是绝对路径
+        wav_file_path = os.path.abspath(wav_file_path)
         
         # 如果上传的是webm或其他格式，转换为wav
         if file_extension in ['.webm', '.ogg', '.mp3', '.m4a']:
@@ -202,7 +207,7 @@ async def upload_file(
             # 不支持其他格式，返回错误
             raise HTTPException(status_code=400, detail=f"不支持的音频格式: {file_extension}，请使用webm或wav格式")
         
-        # 保存文件信息到数据库
+        # 保存文件信息到数据库（存储完整绝对路径）
         file_url = f"{FILE_URL_PREFIX}{unique_filename}"
         file_id = file_dao.insert(
             user_id=user_id,
@@ -211,6 +216,8 @@ async def upload_file(
             file_type="audio/wav",
             file_size=content_size
         )
+        # 注意：file_name 存储的是文件名，实际文件路径是 wav_file_path（绝对路径）
+        # 如果需要存储完整路径，可以考虑在 file_url 中存储完整路径，或使用其他字段
         
         # 更新URL为使用ID
         actual_url = f"{FILE_URL_PREFIX}{file_id}"
@@ -236,14 +243,13 @@ async def get_audio_file(file_id: int):
             raise HTTPException(status_code=404, detail="文件不存在")
         
         # 从file_url中提取文件名，或使用file_name
-        # 这里简化处理，实际应该存储完整的文件路径
+        # 使用绝对路径构建文件路径
         file_name = file_record["file_name"]
         file_path = os.path.join(OUTPUTS_DIR, file_name)
+        file_path = os.path.abspath(file_path)
         
-        # 如果直接文件名不存在，尝试查找UUID格式的文件
+        # 如果文件不存在，返回404
         if not os.path.exists(file_path):
-            # 尝试通过file_id查找（如果文件名是UUID格式）
-            # 这里简化处理，实际应该存储完整的文件路径
             raise HTTPException(status_code=404, detail="文件不存在")
         
         return FileResponse(

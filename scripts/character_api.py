@@ -14,7 +14,9 @@ from scripts.audio_processor import process_audio_with_deepfilternet_denoiser
 logger = logging.getLogger(__name__)
 
 # 输出目录配置（与audio_tts.py保持一致）
-OUTPUTS_DIR = "outputs"
+# 获取项目根目录，构建outputs目录的绝对路径
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUTS_DIR = os.path.join(project_root, "outputs")
 router = APIRouter(prefix="/api/characters", tags=["角色管理"])
 
 # 确保输出目录存在
@@ -76,7 +78,9 @@ async def create_character(request: CharacterRequest, current_user: dict = Depen
                         file_name = f"{os.path.splitext(file_name)[0]}.wav"
 
                     # 构建完整的文件路径（存储在outputs目录下，与audio_tts.py保持一致）
+                    # 使用绝对路径，确保音频处理脚本能找到文件
                     init_input = os.path.join(OUTPUTS_DIR, file_name)
+                    init_input = os.path.abspath(init_input)
 
                     # 验证文件是否存在
                     if not os.path.exists(init_input):
@@ -91,6 +95,8 @@ async def create_character(request: CharacterRequest, current_user: dict = Depen
                                 device=None  # 自动选择设备
                             )
                             if clean_input:
+                                # 确保 clean_input 也是绝对路径
+                                clean_input = os.path.abspath(clean_input)
                                 logger.info(f"音频处理成功: {clean_input}")
                             else:
                                 logger.warning(f"音频处理失败，clean_input 将为 None")
