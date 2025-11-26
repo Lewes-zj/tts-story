@@ -103,7 +103,35 @@ async def process_emo_vector(request: EmoVectorRequest):
     processing_requests.add(request_id)
     
     try:
-        # 从数据库查询 clean_input_audio
+        # 1. 检查数据库中是否已经存在结果
+        logger.info(f"检查数据库中是否存在已有结果: user_id={request.user_id}, role_id={request.role_id}")
+        existing_records = user_emo_dao.query_by_user_role(request.user_id, request.role_id)
+        
+        # 定义固定文本内容，用于返回和生成
+        text = "床前明月光，疑是地上霜。举头望明月，低头思故乡。这首古诗陪伴我们成长，承载着无数人的美好回忆。"
+
+        if existing_records and len(existing_records) > 0:
+            logger.info(f"数据库中已存在{len(existing_records)}条记录，直接返回")
+            
+            saved_records = []
+            for record in existing_records:
+                saved_records.append(
+                    GeneratedFile(
+                        record_id=record['id'],
+                        emo_type=record['emo_type'],
+                        output_path=record['spk_audio_prompt'],
+                        text=text,
+                    )
+                )
+                
+            return EmoVectorResponse(
+                user_id=request.user_id,
+                role_id=request.role_id,
+                text=text,
+                generated_files=saved_records,
+            )
+
+        # 2. 如果不存在，则从数据库查询 clean_input_audio 并重新生成
         logger.info(f"从数据库查询用户输入音频: user_id={request.user_id}, role_id={request.role_id}")
         audio_info = user_input_audio_dao.find_by_user_and_role(request.user_id, request.role_id)
         
@@ -117,8 +145,6 @@ async def process_emo_vector(request: EmoVectorRequest):
         clean_input_audio = audio_info.get("clean_input")
         logger.info(f"从数据库获取到输入音频路径: {clean_input_audio}")
         
-        # 使用固定的文本内容
-        text = "床前明月光，疑是地上霜。举头望明月，低头思故乡。这首古诗陪伴我们成长，承载着无数人的美好回忆。"
         logger.info(f"使用固定文本内容: {text}")
         
         # 使用处理器生成情绪向量语音
