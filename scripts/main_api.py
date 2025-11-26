@@ -120,11 +120,13 @@ try:
 
 except ImportError as e:
     import traceback
+
     print(f"✗ 警告: 无法导入新的API路由，部分功能将不可用")
     print(f"错误详情: {str(e)}")
     traceback.print_exc()
 except Exception as e:
     import traceback
+
     print(f"✗ 错误: 注册新的API路由时发生异常")
     print(f"错误详情: {str(e)}")
     traceback.print_exc()
@@ -154,6 +156,7 @@ def print_routes():
             methods = ", ".join(route.methods) if route.methods else "GET"
             print(f"{methods:8} {route.path}")
     print("=" * 50 + "\n")
+
 
 # 如果直接运行此文件，则启动服务器
 if __name__ == "__main__":
