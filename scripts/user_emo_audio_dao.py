@@ -188,11 +188,11 @@ class UserEmoAudioDAO(BaseDAO):
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 if emo_type:
                     sql = "SELECT * FROM user_emo_audio WHERE user_id = %s AND role_id = %s AND emo_type = %s"
-                    logger.debug(f"执行SQL: {sql}")
+                    logger.info(f"执行SQL: {sql}")
                     cursor.execute(sql, (user_id, role_id, emo_type))
                 else:
                     sql = "SELECT * FROM user_emo_audio WHERE user_id = %s AND role_id = %s"
-                    logger.debug(f"执行SQL: {sql}")
+                    logger.info(f"执行SQL: {sql}")
                     cursor.execute(sql, (user_id, role_id))
 
                 results = cursor.fetchall()

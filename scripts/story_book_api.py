@@ -21,18 +21,29 @@ except ImportError:
     print("警告: 无法导入StoryBookGenerator，有声故事书功能将不可用")
     STORY_BOOK_AVAILABLE = False
 
+# 导入用户有声故事书DAO
+from scripts.user_story_book_dao import UserStoryBookDAO
+# 导入任务DAO
+from scripts.task_dao import TaskDAO
+
 app = FastAPI(title="有声故事书生成API", description="根据用户选择的角色和故事生成有声故事书")
 
 # 用于防止重复处理的请求ID集合（简单的内存去重）
 processing_requests = set()
+# 初始化DAO
+user_story_book_dao = UserStoryBookDAO()
+task_dao = TaskDAO()
+
 
 
 class StoryBookRequest(BaseModel):
     """有声故事书生成请求模型"""
     user_id: int
     role_id: int
+    story_id: int
     story_path: str
     keep_temp_files: Optional[bool] = None
+
 
 
 class StoryBookResponse(BaseModel):
@@ -73,9 +84,26 @@ async def generate_story_book(request: StoryBookRequest):
     
     # 标记请求为处理中
     processing_requests.add(request_id)
-    logger.info(f"开始处理有声故事书生成请求: user_id={request.user_id}, role_id={request.role_id}, story_path={request.story_path}")
+    logger.info(f"开始处理有声故事书生成请求: user_id={request.user_id}, role_id={request.role_id}, story_id={request.story_id}, story_path={request.story_path}")
 
     try:
+        # 1. 检查数据库中是否已经存在结果
+        logger.info(f"检查数据库中是否存在已有结果: user_id={request.user_id}, role_id={request.role_id}, story_id={request.story_id}")
+        existing_record = user_story_book_dao.find_by_user_role_story(request.user_id, request.role_id, request.story_id)
+        
+        if existing_record:
+            story_book_path = existing_record['story_book_path']
+            logger.info(f"数据库中已存在记录，直接返回: {story_book_path}")
+            # 检查文件是否存在
+            if os.path.exists(story_book_path):
+                return StoryBookResponse(
+                    success=True,
+                    message="有声故事书已存在",
+                    story_book_path=story_book_path
+                )
+            else:
+                logger.warning(f"数据库中有记录但文件不存在，重新生成: {story_book_path}")
+
         # 创建生成器实例
         generator = StoryBookGenerator()
 
@@ -89,6 +117,38 @@ async def generate_story_book(request: StoryBookRequest):
 
         if story_book_path:
             logger.info(f"有声故事书生成成功: {story_book_path}")
+            
+            # 保存到数据库
+            try:
+                # 1. 保存到用户有声故事书记录表
+                user_story_book_dao.insert(
+                    user_id=request.user_id,
+                    role_id=request.role_id,
+                    story_id=request.story_id,
+                    story_book_path=story_book_path
+                )
+                logger.info("有声故事书记录保存到数据库成功")
+                
+                # 2. 保存到任务表（供畅听页面使用）
+                # 检查是否已存在相同的已完成任务，避免重复
+                existing_tasks = task_dao.find_by_user_id(request.user_id)
+                # 简单的重复检查逻辑：查看最新的任务是否匹配
+                # 注意：这里只是简单的插入，因为TaskDAO没有find_by_user_role_story这样的精确查询方法
+                # 但为了确保畅听页面能看到，我们插入一条新记录
+                task_id = task_dao.insert(
+                    user_id=request.user_id,
+                    story_id=request.story_id,
+                    character_id=request.role_id,
+                    status="completed"
+                )
+                # 更新音频URL
+                task_dao.update(task_id=task_id, audio_url=story_book_path)
+                logger.info(f"任务记录保存到数据库成功，task_id: {task_id}")
+
+            except Exception as db_err:
+                logger.error(f"保存有声故事书记录到数据库失败: {str(db_err)}")
+                # 记录失败但不影响返回结果
+
             return StoryBookResponse(
                 success=True,
                 message="有声故事书生成成功",

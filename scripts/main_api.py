@@ -96,18 +96,22 @@ try:
     from scripts.story_api import router as story_router
     from scripts.task_api import router as task_router
     from scripts.file_api import router as file_router
+    from scripts.user_story_book_api import router as user_story_book_router
 
     app.include_router(auth_router)
     app.include_router(character_router)
     app.include_router(story_router)
     app.include_router(task_router)
     app.include_router(file_router)
+    app.include_router(user_story_book_router)
     print("✓ 新的API路由已成功注册")
     print("  - 认证API: /api/auth")
     print("  - 角色管理API: /api/characters")
     print("  - 故事管理API: /api/stories")
     print("  - 任务管理API: /api/tasks")
     print("  - 文件管理API: /api/files")
+    print("  - 用户有声故事书API: /api/user_story_books")
+
 except ImportError as e:
     import traceback
     print(f"✗ 警告: 无法导入新的API路由，部分功能将不可用")
