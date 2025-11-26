@@ -23,6 +23,7 @@ if project_root not in current_pythonpath:
 
 # 创建主应用
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -36,6 +37,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 挂载静态文件目录
+outputs_dir = os.path.join(project_root, "outputs")
+os.makedirs(outputs_dir, exist_ok=True)
+app.mount("/outputs", StaticFiles(directory=outputs_dir), name="outputs")
 
 # 导入路由
 # 情绪向量处理API路由
