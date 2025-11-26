@@ -118,6 +118,20 @@ async def generate_story_book(request: StoryBookRequest):
         if story_book_path:
             logger.info(f"有声故事书生成成功: {story_book_path}")
             
+            # 将绝对路径转换为相对路径
+            # 假设 story_book_path 是 /root/autodl-tmp/index-tts/outputs/story_books/xxx.wav
+            # 我们需要将其转换为 outputs/story_books/xxx.wav
+            # 项目根目录 project_root 已经在 main_api.py 中定义，但在 story_book_generator.py 中也有使用
+            # 这里我们尝试找到 "outputs/" 在路径中的位置，并截取后面的部分
+            
+            relative_path = story_book_path
+            if "outputs/" in story_book_path:
+                # 找到 "outputs/" 的起始索引
+                index = story_book_path.find("outputs/")
+                # 截取 "outputs/" 及其后面的部分
+                relative_path = story_book_path[index:]
+                logger.info(f"转换为相对路径: {relative_path}")
+            
             # 保存到数据库
             try:
                 # 1. 保存到用户有声故事书记录表
@@ -125,7 +139,7 @@ async def generate_story_book(request: StoryBookRequest):
                     user_id=request.user_id,
                     role_id=request.role_id,
                     story_id=request.story_id,
-                    story_book_path=story_book_path
+                    story_book_path=relative_path # 使用相对路径保存
                 )
                 logger.info("有声故事书记录保存到数据库成功")
                 
@@ -142,7 +156,7 @@ async def generate_story_book(request: StoryBookRequest):
                     status="completed"
                 )
                 # 更新音频URL
-                task_dao.update(task_id=task_id, audio_url=story_book_path)
+                task_dao.update(task_id=task_id, audio_url=relative_path) # 使用相对路径保存
                 logger.info(f"任务记录保存到数据库成功，task_id: {task_id}")
 
             except Exception as db_err:
@@ -152,7 +166,7 @@ async def generate_story_book(request: StoryBookRequest):
             return StoryBookResponse(
                 success=True,
                 message="有声故事书生成成功",
-                story_book_path=story_book_path
+                story_book_path=relative_path # 返回相对路径
             )
         else:
             logger.error("有声故事书生成失败：返回路径为空")
