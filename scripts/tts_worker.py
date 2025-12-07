@@ -18,11 +18,6 @@ from pathlib import Path
 
 # === 1. 环境与依赖设置 ===
 
-# 确保能导入项目根目录下的 scripts 模块
-project_root = str(Path(__file__).resolve().parent)
-if project_root not in sys.path:
-    sys.path.append(project_root)
-
 # 引入音频处理库
 try:
     from pydub import AudioSegment
