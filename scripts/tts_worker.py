@@ -16,7 +16,19 @@ import time
 import logging
 from pathlib import Path
 
-# === 1. 环境与依赖设置 ===
+# === 1. 环境与依赖设置 (修复版) ===
+
+# 获取当前脚本的绝对路径 (.../tts-story/scripts/tts_worker.py)
+current_script_path = Path(__file__).resolve()
+# 获取 scripts 目录 (.../tts-story/scripts)
+scripts_dir = current_script_path.parent
+# 获取项目根目录 (.../tts-story)
+project_root = scripts_dir.parent
+
+# 关键修正：将【项目根目录】加入 sys.path
+# 这样 "from scripts.tts_utils" 才能正确找到 tts-story/scripts/tts_utils.py
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
 
 # 引入音频处理库
 try:
@@ -31,21 +43,22 @@ try:
     from scripts.tts_utils import initialize_tts_model, TTS_AVAILABLE
 except ImportError as e:
     print(f"❌ 无法导入 scripts.tts_utils: {e}")
-    print("请确保在项目根目录下运行此脚本，且 scripts 文件夹存在。")
+    print(f"当前 sys.path: {sys.path}")
     sys.exit(1)
 
-# === 2. 配置参数 ===
+# === 2. 配置参数 (修复版) ===
 
-BASE_DIR = Path(".")
+# 关键修正：使用绝对路径作为基准，无论你在哪里运行命令，都能找到文件
+BASE_DIR = project_root
+
 PLAYLIST_FILE = BASE_DIR / "story/production_playlist_Ep01.json"
 OUTPUT_DIR = BASE_DIR / "output"
 SEGMENTS_DIR = OUTPUT_DIR / "segments"
 FINAL_FILE = OUTPUT_DIR / "story/final_audiobook_Ep01.wav"
 
-# [新增] 音频库根目录
-# 脚本会自动扫描这个目录下的所有子文件夹寻找参考音频
+# 音频库根目录
 AUDIO_LIB_DIR = BASE_DIR / "role_audio"
-ANCHOR_DIR = BASE_DIR / "audio_library" / "anchor"  # 兜底音频目录
+ANCHOR_DIR = BASE_DIR / "audio_library" / "anchor"
 
 # 渲染参数
 FADE_MS = 10  # 去点击 (ms)
