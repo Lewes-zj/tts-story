@@ -1,6 +1,7 @@
 """
-TTS Audio Matcher - 基于四层漏斗筛选机制的音频匹配引擎
-L1: 身份过滤 -> L1.5: 物理约束 -> L2: 加权打分 -> L3: 兜底决策
+TTS Audio Matcher V2.2 - Prosody-First, Timbre-Safe
+核心逻辑回归本质：韵律为王，音色维稳。
+L1: 身份与物理过滤 -> L2: 韵律优先加权打分 -> L3: 强制出演决策
 """
 
 import re
@@ -9,16 +10,15 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from config import (
-    VOCAL_MODE_FALLBACK_MAP,
+    SCORING_WEIGHTS,
+    SAFE_VOCAL_MODES,
+    EXTREME_VOCAL_MODES,
     DURATION_RATIO_RED_ZONE_MAX,
     DURATION_RATIO_RED_ZONE_MIN,
     DURATION_RATIO_PENALTY_MAX,
     DURATION_RATIO_PENALTY_MIN,
-    SCORE_TIMBRE_PERFECT,
-    SCORE_TIMBRE_FALLBACK,
-    SCORE_PROSODY_ENERGY,
-    SCORE_PROSODY_PITCH,
-    SCORE_VECTOR_MAX,
+    SCORE_TIMBRE_SAFETY_PENALTY,
+    MAX_RAW_PROSODY_SCORE,
     PENALTY_NOISE,
     PENALTY_DURATION,
     LEVEL1_THRESHOLD,
@@ -32,440 +32,235 @@ from config import (
 
 
 class AudioMatcher:
-    """
-    音频匹配引擎类
-    根据目标文本节点从音频库中检索最合适的参考音频
-    """
-
     def __init__(self, audio_library: List[Dict]):
-        """
-        初始化音频匹配器
-
-        Args:
-            audio_library: 音频切片库列表
-        """
         self.audio_library = audio_library
-
-        # 初始化 Sentence Transformer 模型
         self.model = SentenceTransformer("all-MiniLM-L6-v2")
 
-        # 预处理音频库：为缺少 vector_embedding 的项生成嵌入
+        # 预计算向量
         for audio in self.audio_library:
             if "semantic_desc" in audio and "vector_embedding" not in audio:
-                # 生成语义向量并存储
                 audio["vector_embedding"] = self.model.encode(audio["semantic_desc"])
 
     def get_best_match(self, target_node: Dict) -> Dict:
-        """
-        获取最佳匹配音频（主入口方法）
+        """主入口：获取最佳匹配"""
 
-        Args:
-            target_node: 目标文本节点
-
-        Returns:
-            最佳匹配的音频对象（包含匹配信息）
-        """
-        # L1: 身份过滤 - 角色匹配
-        candidates = self._filter_by_role(target_node)
+        # L1: 身份过滤 (角色ID + 物理红线)
+        candidates = self._filter_l1_hard_rules(target_node)
 
         if not candidates:
-            return self._get_anchor_audio("L1", "No matching role found")
+            return self._get_anchor_audio("L1", "No candidates passed L1 filters")
 
-        # L1.5: 物理约束 - 时长检查
-        candidates = self._filter_by_duration(target_node, candidates)
+        # L2: 加权打分 (V2.2 核心算法)
+        scored_candidates = self._calculate_scores_v2_2(target_node, candidates)
 
-        if not candidates:
-            return self._get_anchor_audio("L1.5", "Duration ratio out of red zone")
-
-        # L2: 加权打分
-        scored_candidates = self._calculate_scores(target_node, candidates)
-
-        # 按分数降序排序
+        # 排序
         scored_candidates.sort(key=lambda x: x["total_score"], reverse=True)
 
-        # L3: 决策分发
+        # L3: 决策 (V3.0 强制出演逻辑)
         return self._make_decision(scored_candidates)
 
-    def _filter_by_role(self, target_node: Dict) -> List[Dict]:
-        """
-        L1: 身份过滤 - 严格匹配角色标签
-
-        Args:
-            target_node: 目标文本节点
-
-        Returns:
-            角色匹配的候选音频列表
-        """
+    def _filter_l1_hard_rules(self, target_node: Dict) -> List[Dict]:
+        """L1: 硬规则过滤 (角色 + 物理红线 + 性别)"""
         target_role = target_node.get("role_tag", "")
-
-        # 过滤出角色一致的音频
-        matched = [
-            audio
-            for audio in self.audio_library
-            if audio.get("role", "") == target_role
-        ]
-
-        return matched
-
-    def _estimate_text_duration(self, text: str) -> float:
-        """
-        估算文本时长（秒）
-        算法: (汉字数量 * 0.25) + (标点符号数量 * 0.4)
-
-        Args:
-            text: 目标文本
-
-        Returns:
-            估算时长（秒）
-        """
-        # 统计汉字数量（Unicode范围：\u4e00-\u9fff）
-        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
-
-        # 统计标点符号数量（中英文标点）
-        punctuation_chars = len(
-            re.findall(r'[，。！？、；：""' "（）《》【】…—,.!?;:\"'\(\)\[\]\-]", text)
-        )
-
-        # 计算总时长
-        duration = (
-            chinese_chars * DURATION_CHINESE_CHAR
-            + punctuation_chars * DURATION_PUNCTUATION
-        )
-
-        return duration
-
-    def _filter_by_duration(
-        self, target_node: Dict, candidates: List[Dict]
-    ) -> List[Dict]:
-        """
-        L1.5: 物理约束 - 时长检查与惩罚标记
-
-        Args:
-            target_node: 目标文本节点
-            candidates: 候选音频列表
-
-        Returns:
-            通过物理约束检查的候选列表（标记了惩罚信息）
-        """
         text = target_node.get("text", "")
         target_duration = self._estimate_text_duration(text)
 
+        # TODO: 如果未来加上性别字段，在这里添加 Gender Gate 逻辑
+        # target_gender = target_node.get("gender", "unknown")
+
         filtered = []
+        for audio in self.audio_library:
+            # 1. 角色一致性
+            if audio.get("role", "") != target_role:
+                continue
 
-        for audio in candidates:
-            ref_duration = audio.get("duration", 1.0)  # 默认1秒避免除零
-
-            # 计算时长比率
+            # 2. 物理时长约束 (红线剔除)
+            ref_duration = audio.get("duration", 1.0)
             ratio = target_duration / ref_duration if ref_duration > 0 else 999
 
-            # 红线区判定：直接剔除
             if (
                 ratio > DURATION_RATIO_RED_ZONE_MAX
                 or ratio < DURATION_RATIO_RED_ZONE_MIN
             ):
                 continue
 
-            # 惩罚区判定：标记但保留
-            is_penalty = (
+            # 3. 标记惩罚区 (不剔除，留给 L2 扣分)
+            is_duration_penalty = (
                 ratio > DURATION_RATIO_PENALTY_MAX or ratio < DURATION_RATIO_PENALTY_MIN
             )
 
-            # 添加惩罚标记到音频对象的副本
-            audio_copy = audio.copy()
-            audio_copy["is_penalty"] = is_penalty
-            audio_copy["duration_ratio"] = ratio
-
-            filtered.append(audio_copy)
+            # 创建副本以免污染原库
+            candidate = audio.copy()
+            candidate["_calc_ratio"] = ratio
+            candidate["_is_duration_penalty"] = is_duration_penalty
+            filtered.append(candidate)
 
         return filtered
 
-    def _calculate_scores(
+    def _calculate_scores_v2_2(
         self, target_node: Dict, candidates: List[Dict]
     ) -> List[Dict]:
         """
-        L2: 加权打分引擎
-        计算每个候选音频的总分 = 音色 + 韵律 + 语义向量 - 噪音惩罚 - 时长惩罚
-
-        Args:
-            target_node: 目标文本节点
-            candidates: 候选音频列表
-
-        Returns:
-            包含分数信息的候选列表
+        L2: V2.2 韵律优先打分逻辑
+        Formula: Total = (W_p * S_p) + (W_v * S_v) + S_safety - P_noise
         """
-        scored = []
+        role_type = (
+            "narrator" if target_node.get("role_tag") == "narrator" else "character"
+        )
+        weights = SCORING_WEIGHTS.get(role_type, SCORING_WEIGHTS["character"])
 
+        scored = []
         for audio in candidates:
             score_breakdown = {}
 
-            # 1. 音色得分 (满分40)
-            timbre_score = self._score_timbre(target_node, audio)
-            score_breakdown["timbre"] = timbre_score
+            # 1. 韵律得分 (归一化到 0-100)
+            raw_prosody = self._score_prosody(target_node, audio)
+            # 将 0-30 的分值映射到 0-100
+            norm_prosody = min(100, (raw_prosody / MAX_RAW_PROSODY_SCORE) * 100)
+            final_prosody = norm_prosody * weights["prosody"]
+            score_breakdown["prosody"] = final_prosody
 
-            # 2. 韵律得分 (满分30)
-            prosody_score = self._score_prosody(target_node, audio)
-            score_breakdown["prosody"] = prosody_score
+            # 2. 向量得分 (0-100)
+            raw_vector = self._score_vector(target_node, audio)  # 返回 0-100
+            final_vector = raw_vector * weights["vector"]
+            score_breakdown["vector"] = final_vector
 
-            # 3. 语义向量得分 (满分20)
-            vector_score = self._score_vector(target_node, audio)
-            score_breakdown["vector"] = vector_score
+            # 3. 音色安全系数 (仅 Narrator 生效，只减不加)
+            safety_bonus = 0
+            if role_type == "narrator":
+                safety_bonus = self._calculate_safety_bonus(target_node, audio)
+            score_breakdown["timbre_safety"] = safety_bonus
 
-            # 4. 净度惩罚 (扣分项)
+            # 4. 净度惩罚
             noise_penalty = self._calculate_noise_penalty(target_node, audio)
             score_breakdown["noise_penalty"] = noise_penalty
 
-            # 5. 时长惩罚 (L1.5遗留)
-            duration_penalty = PENALTY_DURATION if audio.get("is_penalty", False) else 0
-            score_breakdown["duration_penalty"] = duration_penalty
+            # 5. 时长惩罚
+            dur_penalty = PENALTY_DURATION if audio.get("_is_duration_penalty") else 0
+            score_breakdown["duration_penalty"] = dur_penalty
 
-            # 计算总分
+            # === 总分计算 ===
             total_score = (
-                timbre_score
-                + prosody_score
-                + vector_score
+                final_prosody
+                + final_vector
+                + safety_bonus
                 + noise_penalty
-                + duration_penalty
+                + dur_penalty
             )
 
-            # 构建结果对象
             result = audio.copy()
-            result["score_breakdown"] = score_breakdown
             result["total_score"] = total_score
-
+            result["score_breakdown"] = score_breakdown
             scored.append(result)
 
         return scored
 
-    def _score_timbre(self, target_node: Dict, audio: Dict) -> int:
+    def _calculate_safety_bonus(self, target_node: Dict, audio: Dict) -> int:
         """
-        计算音色匹配得分
-
-        Args:
-            target_node: 目标文本节点
-            audio: 候选音频
-
-        Returns:
-            音色得分 (0/20/40)
+        V2.2 核心：音色安全区检查
+        如果不安全，扣分；如果安全，不加分。
         """
-        target_vocal_mode = target_node.get("timbral", {}).get("vocal_mode", "")
-        audio_vocal_mode = audio.get("vocal_mode", "")
+        target_mode = target_node.get("timbral", {}).get("vocal_mode", "")
+        audio_mode = audio.get("vocal_mode", "")
 
-        # 完美匹配
-        if target_vocal_mode == audio_vocal_mode:
-            return SCORE_TIMBRE_PERFECT
+        # 如果音频处于“极端风险区” (Extreme)
+        if audio_mode in EXTREME_VOCAL_MODES:
+            # 除非文本显式要求了这个怪异音色，否则视为污染
+            if target_mode != audio_mode:
+                return SCORE_TIMBRE_SAFETY_PENALTY
 
-        # 降级匹配：检查是否在fallback映射中
-        fallback_modes = VOCAL_MODE_FALLBACK_MAP.get(target_vocal_mode, [])
-        if audio_vocal_mode in fallback_modes:
-            return SCORE_TIMBRE_FALLBACK
-
-        # 不匹配
+        # 其他情况（安全音色 或 显式要求的怪音色）均不扣分
         return 0
 
     def _score_prosody(self, target_node: Dict, audio: Dict) -> int:
-        """
-        计算韵律匹配得分
-
-        Args:
-            target_node: 目标文本节点
-            audio: 候选音频
-
-        Returns:
-            韵律得分 (0-30)
-        """
+        """计算原始韵律分 (0 - 30)"""
         score = 0
         prosodic = target_node.get("prosodic", {})
 
-        # 1. 能量等级匹配 (容差±0.5)
-        target_energy = prosodic.get("energy_level", 0)
-        audio_energy = audio.get("energy_level", 0)
+        # 1. 能量匹配 (+15)
+        t_energy = prosodic.get("energy_level", 0)
+        a_energy = audio.get("energy_level", 0)
+        if abs(t_energy - a_energy) <= ENERGY_LEVEL_TOLERANCE:
+            score += 15
 
-        if abs(target_energy - audio_energy) <= ENERGY_LEVEL_TOLERANCE:
-            score += SCORE_PROSODY_ENERGY
-
-        # 2. 音调曲线匹配
-        target_pitch = prosodic.get("pitch_curve", "")
-        audio_pitch = audio.get("pitch_curve", "")
-
-        if target_pitch == audio_pitch:
-            score += SCORE_PROSODY_PITCH
+        # 2. 语调匹配 (+15)
+        if prosodic.get("pitch_curve") == audio.get("pitch_curve"):
+            score += 15
 
         return score
 
     def _score_vector(self, target_node: Dict, audio: Dict) -> float:
-        """
-        计算语义向量相似度得分
+        """计算向量相似度 (0 - 100)"""
+        target_desc = target_node.get("semantic_vector_desc", "")
+        audio_vec = audio.get("vector_embedding", [])
 
-        Args:
-            target_node: 目标文本节点
-            audio: 候选音频
-
-        Returns:
-            向量得分 (0-20)
-        """
-        # 计算相似度（暂时使用模拟值）
-        similarity = self._calc_similarity(
-            target_node.get("semantic_vector_desc", ""),
-            audio.get("vector_embedding", []),
-        )
-
-        return similarity * SCORE_VECTOR_MAX
-
-    def _calc_similarity(self, target_desc: str, audio_vector: List) -> float:
-        """
-        辅助函数：计算语义相似度（使用余弦相似度）
-
-        Args:
-            target_desc: 目标文本语义描述
-            audio_vector: 音频向量嵌入
-
-        Returns:
-            相似度 (0.0-1.0)
-        """
-        # 如果目标描述为空或音频向量为空，返回0
-        if not target_desc or audio_vector is None or len(audio_vector) == 0:
+        if not target_desc or audio_vec is None or len(audio_vec) == 0:
             return 0.0
 
-        # 编码目标文本
-        target_vector = self.model.encode(target_desc)
+        target_vec = self.model.encode(target_desc).reshape(1, -1)
+        audio_vec = np.array(audio_vec).reshape(1, -1)
 
-        # 将向量转换为numpy数组并reshape为2D
-        target_vector = np.array(target_vector).reshape(1, -1)
-        audio_vector = np.array(audio_vector).reshape(1, -1)
-
-        # 计算余弦相似度
-        similarity = cosine_similarity(target_vector, audio_vector)[0][0]
-
-        # 确保相似度为非负值（通常余弦相似度范围为-1到1，但对于这个模型通常是0到1）
-        similarity = max(0.0, similarity)
-
-        return float(similarity)
+        similarity = cosine_similarity(target_vec, audio_vec)[0][0]
+        return max(0.0, float(similarity) * 100)  # 映射到 0-100
 
     def _calculate_noise_penalty(self, target_node: Dict, audio: Dict) -> int:
-        """
-        计算净度惩罚
-
-        Args:
-            target_node: 目标文本节点
-            audio: 候选音频
-
-        Returns:
-            惩罚分数 (0 或 PENALTY_NOISE)
-        """
+        """净度惩罚"""
         physiological = target_node.get("physiological", {})
-        mouth_artifact = physiological.get("mouth_artifact", "")
-        breath_mark = physiological.get("breath_mark", "none")
-
+        mouth = physiological.get("mouth_artifact", "")
+        breath = physiological.get("breath_mark", "none")
         audio_tags = audio.get("tags", [])
 
-        # 目标要求干净
-        if mouth_artifact == "clean":
-            # 检查音频是否有噪音标签
+        if mouth == "clean":
             has_noise = any(tag in NOISE_TAGS for tag in audio_tags)
-
-            # 豁免条件：目标需要呼吸声 且 音频包含呼吸声
-            if breath_mark != "none" and "breath" in audio_tags:
-                # 这是合理的生理特征，不扣分
+            # 呼吸声豁免权
+            if breath != "none" and "breath" in audio_tags:
                 return 0
-
-            # 有噪音则扣分
             if has_noise:
                 return PENALTY_NOISE
-
         return 0
 
     def _make_decision(self, scored_candidates: List[Dict]) -> Dict:
-        """
-        L3: 决策分发 - 根据分数返回最终结果
-        [V3.0 改进]: 引入"强制出演"逻辑。
-        只要候选列表不为空，就必须返回其中分最高的一个，绝不退回 Anchor。
-        """
-        # 情况 1: 真的没救了 (库是空的，或者所有音频都因为时长太离谱被 L1.5 物理规则剔除了)
+        """L3: 决策 (强制出演逻辑)"""
         if not scored_candidates:
-            return self._get_anchor_audio(
-                "L3", "No candidates available (all filtered by physics)"
-            )
+            return self._get_anchor_audio("L3", "All filtered by physics")
 
-        # 取出分数最高的一个
         best = scored_candidates[0]
-        best_score = best["total_score"]
+        score = best["total_score"]
 
-        # Level 1: 完美匹配 (分数 >= 80)
-        if best_score >= LEVEL1_THRESHOLD:
+        if score >= LEVEL1_THRESHOLD:
             best["match_level"] = "Level 1: Perfect Clone"
-
-        # Level 2: 代偿匹配 (分数 >= 60)
-        elif best_score >= LEVEL2_THRESHOLD:
-            best["match_level"] = "Level 2: Cross-mode Compensation"
-
-        # Level 3: 强制出演 (分数 < 60)
-        # [核心修改]: 即使分数很低 (例如 0 分)，只要它是该角色库里的 Top 1，就强制使用它。
+        elif score >= LEVEL2_THRESHOLD:
+            best["match_level"] = "Level 2: Safe Clone"
         else:
-            best["match_level"] = "Level 3: Imperfect Match (Forced)"
-            best["fallback_reason"] = (
-                f"Score {best_score:.1f} is low, but forcing actor consistency."
-            )
+            best["match_level"] = "Level 3: Forced Imperfect"
+            best["fallback_reason"] = f"Low score ({score:.1f}) but forced actor"
 
         return best
 
     def _get_anchor_audio(self, stage: str, reason: str) -> Dict:
-        """
-        返回默认锚点音频（兜底机制）
-
-        Args:
-            stage: 触发兜底的阶段 (L1/L1.5/L3)
-            reason: 兜底原因
-
-        Returns:
-            锚点音频对象
-        """
         return {
             "id": "anchor_default",
             "role": "universal",
             "duration": 4.0,
-            "vocal_mode": "modal_warm",
-            "energy_level": 2,
-            "pitch_curve": "stable",
-            "tags": ["clean"],
-            "audio_path": ANCHOR_AUDIO_PATH,
+            "path": ANCHOR_AUDIO_PATH,  # 注意字段名统一
             "match_level": "Level 3: Anchor Fallback",
-            "fallback_stage": stage,
-            "fallback_reason": reason,
+            "fallback_reason": f"[{stage}] {reason}",
             "total_score": 0,
-            "score_breakdown": {},
         }
 
+    def _estimate_text_duration(self, text: str) -> float:
+        chinese = len(re.findall(r"[\u4e00-\u9fff]", text))
+        punct = len(
+            re.findall(r'[，。！？、；：""' "（）《》【】…—,.!?;:\"'\(\)\[\]\-]", text)
+        )
+        return chinese * DURATION_CHINESE_CHAR + punct * DURATION_PUNCTUATION
+
     def print_match_result(self, result: Dict, target_node: Dict):
-        """
-        打印匹配结果（便于调试和测试）
-
-        Args:
-            result: 匹配结果
-            target_node: 目标文本节点
-        """
-        print("\n" + "=" * 60)
-        print(f"目标文本: {target_node.get('text', '')[:40]}...")
-        print(f"目标角色: {target_node.get('role_tag', '')}")
-        print(f"目标音色: {target_node.get('timbral', {}).get('vocal_mode', '')}")
+        """调试打印"""
         print("-" * 60)
-        print(f"匹配音频: {result.get('id', '')}")
-        print(f"匹配等级: {result.get('match_level', '')}")
-        print(f"总分: {result.get('total_score', 0):.2f}")
-
-        if "score_breakdown" in result and result["score_breakdown"]:
-            print("\n分数详情:")
-            breakdown = result["score_breakdown"]
-            print(f"  - 音色得分: {breakdown.get('timbre', 0)}")
-            print(f"  - 韵律得分: {breakdown.get('prosody', 0)}")
-            print(f"  - 语义得分: {breakdown.get('vector', 0):.2f}")
-            print(f"  - 噪音惩罚: {breakdown.get('noise_penalty', 0)}")
-            print(f"  - 时长惩罚: {breakdown.get('duration_penalty', 0)}")
-
-        if "fallback_reason" in result:
-            print(f"\n兜底原因: {result.get('fallback_reason', '')}")
-            print(f"兜底阶段: {result.get('fallback_stage', '')}")
-
-        if "duration_ratio" in result:
-            print(f"\n时长比率: {result.get('duration_ratio', 0):.2f}")
-
-        print("=" * 60)
+        print(f"Text: {target_node.get('text', '')[:30]}...")
+        print(
+            f"Role: {target_node.get('role_tag')} | Target Mode: {target_node.get('timbral', {}).get('vocal_mode')}"
+        )
+        print(f"Match: {result.get('id')} | Score: {result.get('total_score', 0):.1f}")
+        print(f"Breakdown: {result.get('score_breakdown')}")
