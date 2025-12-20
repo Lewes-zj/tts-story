@@ -1,12 +1,10 @@
 """
-TTS Worker (Local Integration Version) - 最终合成工兵
+TTS Worker (V2.0 Optimized) - 极简高效版
 适配环境：AutoDL / Linux Server with Index-TTS2
 功能：
-1. 引入 scripts.tts_utils 加载本地模型
-2. 自动索引 role_audio 目录下的所有音频
-3. 读取 production_playlist.json 并动态修复路径
-4. 调用 self.tts.infer 生成音频 (支持旁白音色替换)
-5. 使用 pydub 进行去点击、拼接和渲染
+1. 直接利用 JSON 中的 path 字段，无需扫描全盘。
+2. 支持 --narrator_input 异源驱动。
+3. 依然保留 pydub 渲染管线。
 """
 
 import json
@@ -14,7 +12,7 @@ import os
 import sys
 import time
 import logging
-import argparse  # [新增] 用于接收命令行参数
+import argparse
 from pathlib import Path
 
 # === 1. 环境与依赖设置 ===
@@ -42,12 +40,13 @@ except ImportError as e:
 DATA_ROOT = code_root.parent
 logger = logging.getLogger("LocalWorker")
 
-PLAYLIST_FILE = DATA_ROOT / "story/production_playlist_Ep01.json"
+# 注意：这里需要你手动修改一次 production_playlist.json 的文件名
+# 或者你可以通过命令行参数传入 playlist 路径 (更灵活)
+PLAYLIST_FILE = DATA_ROOT / "story/production_playlist_Ep01_20251210_140126.json"
 OUTPUT_DIR = DATA_ROOT / "output"
 SEGMENTS_DIR = OUTPUT_DIR / "segments"
 FINAL_FILE = OUTPUT_DIR / "story/final_audiobook_Ep01.wav"
 
-AUDIO_LIB_DIR = DATA_ROOT / "role_audio"
 ANCHOR_DIR = DATA_ROOT / "audio_library/anchor"
 
 FADE_MS = 10
@@ -58,49 +57,7 @@ logger = logging.getLogger("LocalWorker")
 
 
 # ============================================================================
-# 3. 辅助类：音频文件管理器
-# ============================================================================
-class AudioManager:
-    """负责扫描和定位音频文件"""
-
-    def __init__(self, lib_root: Path):
-        self.lib_root = lib_root
-        self.file_map = {}
-        self._scan_library()
-
-    def _scan_library(self):
-        if not self.lib_root.exists():
-            logger.warning(f"⚠️ 音频库目录不存在: {self.lib_root}")
-            return
-        logger.info(f"🔍 正在索引音频库: {self.lib_root} ...")
-        count = 0
-        for path in self.lib_root.rglob("*"):
-            if path.is_file() and path.suffix.lower() in [".wav", ".mp3", ".flac"]:
-                self.file_map[path.name] = str(path.absolute())
-                count += 1
-        logger.info(f"✅ 索引完成，共找到 {count} 个音频文件")
-
-    def find_path(self, file_id: str, original_path: str = "") -> str:
-        if original_path and os.path.exists(original_path):
-            return original_path
-        if file_id in self.file_map:
-            return self.file_map[file_id]
-        if not file_id.endswith(".wav"):
-            wav_id = file_id + ".wav"
-            if wav_id in self.file_map:
-                return self.file_map[wav_id]
-        if "anchor" in str(original_path) or "anchor" in file_id:
-            local_anchor = ANCHOR_DIR / Path(original_path).name
-            if local_anchor.exists():
-                return str(local_anchor.absolute())
-            anchor_name = Path(original_path).name
-            if anchor_name in self.file_map:
-                return self.file_map[anchor_name]
-        return None
-
-
-# ============================================================================
-# 4. 模型封装类 (LocalTTSWrapper)
+# 3. 模型封装类 (LocalTTSWrapper)
 # ============================================================================
 class LocalTTSWrapper:
     def __init__(self):
@@ -126,40 +83,29 @@ class LocalTTSWrapper:
         narrator_input=None,
         role="unknown",
     ):
-        """
-        执行推理
-        Args:
-            narrator_input: (可选) 强制指定的旁白音色文件路径
-            role: 当前角色名称
-        """
         try:
+            # 检查参考音频是否存在
             if not ref_audio_path or not os.path.exists(ref_audio_path):
                 logger.error(f"❌ 参考音频无法访问: {ref_audio_path}")
                 return False
 
-            # === [关键逻辑修改] ===
-            # 默认：音色(spk) 和 情绪(emo) 都用 ref_audio
+            # === [异源驱动逻辑] ===
             spk_audio = ref_audio_path
             emo_audio = ref_audio_path
 
-            # 特殊情况：如果是旁白角色，且用户指定了 narrator_input
             if role == "narrator" and narrator_input:
                 if os.path.exists(narrator_input):
-                    # 替换音色，但保留 ref_audio 的情绪
-                    spk_audio = narrator_input
-                    # logger.info(f"   ✨ [异源驱动] 使用指定音色: {Path(narrator_input).name}")
+                    spk_audio = narrator_input  # 替换音色
                 else:
-                    logger.warning(
-                        f"⚠️ 指定的旁白文件不存在: {narrator_input}，回退到原声"
-                    )
+                    logger.warning(f"⚠️ 指定旁白文件不存在: {narrator_input}")
 
             # 调用 IndexTTS2 推理
             self.model.infer(
                 text=text,
-                spk_audio_prompt=spk_audio,  # 音色
-                emo_audio_prompt=emo_audio,  # 情绪/韵律
+                spk_audio_prompt=spk_audio,
+                emo_audio_prompt=emo_audio,
                 output_path=output_wav_path,
-                verbose=False,  # 减少刷屏
+                verbose=False,
             )
 
             if (
@@ -176,29 +122,36 @@ class LocalTTSWrapper:
 
 
 # ============================================================================
-# 5. 主工兵逻辑
+# 4. 主工兵逻辑
 # ============================================================================
 class TTSWorker:
-    def __init__(self, narrator_input=None):
+    def __init__(self, playlist_path=None, narrator_input=None):
         SEGMENTS_DIR.mkdir(parents=True, exist_ok=True)
         self.tts = LocalTTSWrapper()
-        self.audio_mgr = AudioManager(AUDIO_LIB_DIR)
         self.final_track = AudioSegment.empty()
 
-        # 保存用户指定的旁白文件路径
+        # 允许通过参数指定 playlist，否则用默认值
+        self.playlist_file = Path(playlist_path) if playlist_path else PLAYLIST_FILE
         self.narrator_input = narrator_input
+
         if self.narrator_input:
             logger.info(f"🎙️ 已启用旁白音色替换: {self.narrator_input}")
 
     def run(self):
-        if not PLAYLIST_FILE.exists():
-            logger.error(f"找不到 {PLAYLIST_FILE}")
-            return
+        if not self.playlist_file.exists():
+            logger.error(f"找不到播放列表: {self.playlist_file}")
+            # 尝试在上一级目录找找看（兼容性处理）
+            alt_path = Path("..") / self.playlist_file.name
+            if alt_path.exists():
+                logger.info(f"🔄 在上级目录找到了: {alt_path}")
+                self.playlist_file = alt_path
+            else:
+                return
 
-        with open(PLAYLIST_FILE, "r", encoding="utf-8") as f:
+        with open(self.playlist_file, "r", encoding="utf-8") as f:
             playlist = json.load(f)
 
-        logger.info(f"📂 开始处理 {len(playlist)} 个任务...")
+        logger.info(f"📂 读取列表: {self.playlist_file.name} ({len(playlist)} 条任务)")
 
         for item in playlist:
             seq = item["seq"]
@@ -214,12 +167,25 @@ class TTSWorker:
                 role = item["role"]
                 ref_info = item["ref_audio"]
 
-                original_path = ref_info.get("path", "")
-                file_id = ref_info.get("id", "")
-                real_ref_path = self.audio_mgr.find_path(file_id, original_path)
+                # [核心简化] 直接使用 JSON 里的相对路径
+                # 假设 JSON 里存的是 "role_audio/narrator/xxx.wav"
+                # 我们只需要拼上 DATA_ROOT 即可
+                json_path = ref_info.get("path", "")
 
-                if not real_ref_path:
-                    logger.error(f"❌ 找不到参考音频 (ID: {file_id})，跳过")
+                # 如果是 anchor (通常没有相对路径)，特殊处理
+                if "anchor" in json_path or "anchor" in ref_info.get("id", ""):
+                    # 假设 anchor 固定在 audio_library/anchor 下
+                    real_ref_path = (
+                        ANCHOR_DIR / "modal_warm_stable.wav"
+                    )  # 或者根据 ID 找
+                else:
+                    real_ref_path = DATA_ROOT / json_path
+
+                # 转为绝对路径字符串
+                abs_ref_path = str(real_ref_path.resolve())
+
+                if not os.path.exists(abs_ref_path):
+                    logger.error(f"❌ 路径无效: {abs_ref_path}")
                     self.final_track += AudioSegment.silent(duration=1000)
                     continue
 
@@ -228,14 +194,13 @@ class TTSWorker:
 
                 logger.info(f"[{seq}] 🎙️ 合成: {role} -> {text[:15]}...")
 
-                # [修改] 传递 narrator_input 和 role 参数
                 success = self.tts.synthesize(
                     text=text,
-                    ref_audio_path=real_ref_path,
+                    ref_audio_path=abs_ref_path,
                     emotion=emotion,
                     output_wav_path=str(out_path),
-                    narrator_input=self.narrator_input,  # 传入指定音色
-                    role=role,  # 传入角色名以便判断
+                    narrator_input=self.narrator_input,
+                    role=role,
                 )
 
                 if success:
@@ -259,16 +224,11 @@ class TTSWorker:
 # 6. 入口函数
 # ============================================================================
 if __name__ == "__main__":
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description="有声书合成工兵")
-    parser.add_argument(
-        "--narrator_input",
-        type=str,
-        default=None,
-        help="[可选] 指定旁白角色的音色参考音频路径 (覆盖默认音色)",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--narrator_input", type=str, help="旁白音色文件")
+    parser.add_argument("--playlist", type=str, help="指定的播放列表JSON路径")
 
     args = parser.parse_args()
 
-    worker = TTSWorker(narrator_input=args.narrator_input)
+    worker = TTSWorker(playlist_path=args.playlist, narrator_input=args.narrator_input)
     worker.run()
