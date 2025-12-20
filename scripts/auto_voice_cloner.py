@@ -467,6 +467,15 @@ if __name__ == "__main__":
     parser.add_argument("-a", "--emo_audio", type=str, help="【单条】情感参考音频路径")
     parser.add_argument("-t", "--emo_text", type=str, help="【单条】目标生成文本")
 
+    # === 输出目录参数 ===
+    parser.add_argument(
+        "-o",
+        "--output_dir",
+        type=str,
+        default="outputs",
+        help="【可选】输出目录路径，默认为 'outputs'",
+    )
+
     args = parser.parse_args()
 
     # 2. 参数校验逻辑
@@ -492,7 +501,7 @@ if __name__ == "__main__":
         # 3. 初始化模型
         # [修正点] 不再传递 model_path 和 device，直接空参初始化
         # 这样它就会使用类内部默认封装好的配置
-        cloner = AutoVoiceCloner()
+        cloner = AutoVoiceCloner(output_dir=args.output_dir)
 
         # 4. 执行克隆
         cloner.run_cloning(
