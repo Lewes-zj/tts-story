@@ -20,6 +20,8 @@ import argparse
 import json
 from difflib import SequenceMatcher
 
+sys.modules["triton"] = None
+
 try:
     import whisper
 except ImportError:
