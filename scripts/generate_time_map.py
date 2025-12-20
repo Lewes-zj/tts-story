@@ -62,8 +62,10 @@ def scan_tts_folder(folder_path: str) -> list:
         if not filename.lower().endswith((".wav", ".mp3", ".flac", ".m4a")):
             continue
 
-        # 解析文件名：格式为 "ID-文本内容.wav"
-        match = re.match(r"^(\d+)-(.+)\.(wav|mp3|flac|m4a)$", filename, re.IGNORECASE)
+        # 解析文件名：格式为 "ID-文本内容.wav" or "ID_文本内容.wav"
+        match = re.match(
+            r"^(\d+)[-_](.+)\.(wav|mp3|flac|m4a)$", filename, re.IGNORECASE
+        )
         if match:
             file_id = int(match.group(1))
             text = match.group(2)
