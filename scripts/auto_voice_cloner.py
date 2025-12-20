@@ -438,7 +438,6 @@ class AutoVoiceCloner:
 # 使用示例
 # ============================================================================
 
-
 if __name__ == "__main__":
     # 1. 定义命令行参数解析器
     parser = argparse.ArgumentParser(description="AutoVoiceCloner - 自动音频克隆工具")
@@ -451,15 +450,8 @@ if __name__ == "__main__":
         required=True,
         help="【必须】说话人音色参考音频路径 (Input Speaker)",
     )
-    parser.add_argument(
-        "--model_path",
-        type=str,
-        default="model.pth",
-        help="模型文件路径 (默认: model.pth)",
-    )
-    parser.add_argument(
-        "--device", type=str, default="cuda", help="推理设备 (默认: cuda)"
-    )
+
+    # [修正点] 删除了 --model_path 和 --device 参数定义
 
     # === 批量模式参数 ===
     parser.add_argument(
@@ -499,8 +491,9 @@ if __name__ == "__main__":
 
     try:
         # 3. 初始化模型
-        # 注意：请确保这里的参数名与 index_tts2_voice_cloner.py 的 __init__ 一致
-        cloner = AutoVoiceCloner(model_path=args.model_path, device=args.device)
+        # [修正点] 不再传递 model_path 和 device，直接空参初始化
+        # 这样它就会使用类内部默认封装好的配置
+        cloner = AutoVoiceCloner()
 
         # 4. 执行克隆
         cloner.run_cloning(
@@ -513,6 +506,10 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"\n❌ 程序执行出错: {str(e)}")
+        # 打印详细错误堆栈，方便排查其他问题
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)
 
 # if __name__ == "__main__":

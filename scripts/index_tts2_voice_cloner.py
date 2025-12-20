@@ -282,6 +282,8 @@ class IndexTTS2VoiceCloner:
             text=text,
             spk_audio_prompt=spk_audio_prompt,
             emo_audio_prompt=emo_audio_prompt,
+            temperature=0.3,
+            top_p=0.8,
             output_path=output_path,
             verbose=verbose,
         )
