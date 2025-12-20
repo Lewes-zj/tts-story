@@ -17,6 +17,7 @@ from typing import Optional, List, Dict
 from pathlib import Path
 import argparse
 import sys
+from datetime import datetime
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
@@ -346,11 +347,9 @@ class AutoVoiceCloner:
         if not os.path.exists(emo_audio):
             raise FileNotFoundError(f"情感参考音频不存在: {emo_audio}")
 
-        # 清洗文本
-        clean_text = self._sanitize_filename(emo_text)
-
-        # 构建输出文件名：single_{text}.wav
-        output_filename = f"single_{clean_text}.wav"
+        # 构建输出文件名：使用时间戳命名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"{timestamp}.wav"
         output_path = str(self.output_dir / output_filename)
 
         logger.info(f"音色参考: {input_audio}")
@@ -511,123 +510,3 @@ if __name__ == "__main__":
 
         traceback.print_exc()
         sys.exit(1)
-
-# if __name__ == "__main__":
-#     print("\n" + "=" * 70)
-#     print("AutoVoiceCloner 使用示例")
-#     print("=" * 70)
-
-#     # 创建克隆器实例
-#     try:
-#         cloner = AutoVoiceCloner(output_dir="outputs/auto_cloner")
-#     except Exception as e:
-#         print(f"❌ 初始化失败: {e}")
-#         print("提示：请确保已正确安装 indextts 包")
-#         exit(1)
-
-#     # ========================================================================
-#     # 示例1：批量克隆模式
-#     # ========================================================================
-#     print("\n" + "-" * 70)
-#     print("示例1：批量克隆模式")
-#     print("-" * 70)
-#     print("""
-# 使用场景：
-# - 有一个JSON配置文件，包含多个待生成的文本
-# - 所有文本使用同一个说话人音色
-# - 每个文本对应不同的情感参考音频
-
-# 调用方式：
-#     result = cloner.run_cloning(
-#         input_audio="speaker.wav",
-#         batch_json_path="db/sherlock_holmes_narrator_01.json",
-#         emo_audio_folder="role_audio/福尔摩斯第一集原人声切片/旁白"
-#     )
-
-# 执行流程：
-# 1. 读取JSON文件
-# 2. 按 sort 字段正序排序
-# 3. 遍历每个任务：
-#    - text = JSON中的text字段
-#    - emo_audio = emo_audio_folder + JSON中的emo_audio字段
-#    - spk_audio = input_audio
-# 4. 输出文件命名：{sort}_{text}.wav
-#    例如：1_今年伦敦的春天似乎比往年来得早些.wav
-#     """)
-
-#     # 实际执行（注释掉，避免实际运行）
-#     # result = cloner.run_cloning(
-#     #     input_audio="speaker.wav",
-#     #     batch_json_path="db/sherlock_holmes_narrator_01.json",
-#     #     emo_audio_folder="role_audio/福尔摩斯第一集原人声切片/旁白"
-#     # )
-#     # print(f"批量克隆结果: 成功 {result['success']}/{result['total']}")
-
-#     # ========================================================================
-#     # 示例2：单条克隆模式
-#     # ========================================================================
-#     print("\n" + "-" * 70)
-#     print("示例2：单条克隆模式")
-#     print("-" * 70)
-#     print("""
-# 使用场景：
-# - 快速生成单个音频
-# - 不需要JSON配置文件
-
-# 调用方式：
-#     result = cloner.run_cloning(
-#         input_audio="speaker.wav",
-#         emo_audio="emotion.wav",
-#         emo_text="你好，今天天气真好！"
-#     )
-
-# 执行流程：
-# 1. 直接使用传入的参数
-# 2. 生成单个音频文件
-# 3. 输出文件命名：single_{text}.wav
-#    例如：single_你好今天天气真好.wav
-#     """)
-
-#     # 实际执行（注释掉，避免实际运行）
-#     # result = cloner.run_cloning(
-#     #     input_audio="speaker.wav",
-#     #     emo_audio="emotion.wav",
-#     #     emo_text="你好，今天天气真好！"
-#     # )
-#     # print(f"单条克隆结果: {'成功' if result['success'] else '失败'}")
-
-#     # ========================================================================
-#     # 完整示例（实际可运行）
-#     # ========================================================================
-#     print("\n" + "-" * 70)
-#     print("完整示例代码")
-#     print("-" * 70)
-#     print("""
-# from scripts.auto_voice_cloner import AutoVoiceCloner
-
-# # 创建克隆器
-# cloner = AutoVoiceCloner(output_dir="outputs/my_audio")
-
-# # 批量克隆
-# batch_result = cloner.run_cloning(
-#     input_audio="/path/to/speaker_voice.wav",
-#     batch_json_path="db/sherlock_holmes_narrator_01.json",
-#     emo_audio_folder="/path/to/emotion_audios/"
-# )
-
-# print(f"批量克隆: {batch_result['success']}/{batch_result['total']} 成功")
-
-# # 单条克隆
-# single_result = cloner.run_cloning(
-#     input_audio="/path/to/speaker_voice.wav",
-#     emo_audio="/path/to/happy_emotion.wav",
-#     emo_text="今天天气真好！"
-# )
-
-# print(f"单条克隆: {'✅成功' if single_result['success'] else '❌失败'}")
-#     """)
-
-#     print("\n" + "=" * 70)
-#     print("示例展示完成")
-#     print("=" * 70)
-#     print("\n提示：修改上述示例中的路径后即可实际运行")
