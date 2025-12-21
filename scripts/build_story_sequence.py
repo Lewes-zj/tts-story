@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """
-ABEA 序列构建 (V8.0 声学精修版)
+ABEA 序列构建 (V10.0 前瞻性智能修正版)
 核心升级：
-1. [Whisper 定位]：利用 script.json 长文本获取粗略时间。
-2. [声学精修]：引入 VAD (能量检测) 机制。
-   - Whisper 说 10.44s 开始？
-   - 程序检查 10.44s 往前是不是真的静音？
-   - 发现 10.0s 处有声音能量 -> 修正为 10.0s。
-   - 彻底解决 Whisper "吞头去尾" 导致的对齐不准。
+引入"前瞻性空隙检测算法" (Lookahead Gap Detection)。
+- 当 ID 3 嫌挤时，不瞎扩，而是先看 ID 4 和 ID 5。
+- 如果 (ID3 + ID4) 的总时长能塞进 ID 5 之前，就大胆扩张 ID 3，并自动推迟 ID 4。
+- 彻底解决重叠问题，同时保证不撞到后续的关键时间点。
 """
 
 import os
@@ -17,12 +15,11 @@ import json
 import argparse
 from difflib import SequenceMatcher
 
-# 禁用 Triton
 sys.modules["triton"] = None
 
 try:
     import whisper
-    from pydub import AudioSegment, silence
+    from pydub import AudioSegment
 except ImportError:
     print("错误：请安装依赖 - pip install openai-whisper pydub")
     sys.exit(1)
@@ -53,7 +50,6 @@ def load_script(path):
             script_map[uid] = {
                 "text": item.get("text", ""),
                 "role": item.get("role", "未知"),
-                # 支持人工强行锁定
                 "manual_start": item.get("start"),
                 "manual_end": item.get("end"),
             }
@@ -82,13 +78,8 @@ def scan_audio(folders):
     return audio_map
 
 
-# =======================================================
-# 核心：Whisper 识别
-# =======================================================
-
-
-def match_whisper(audio_path, sequence, model="medium"):
-    print(f"\n[1/3] Whisper 识别中 ({model})...")
+def match_whisper_base(audio_path, sequence, model="medium"):
+    print(f"\n[1/2] Whisper 识别中 ({model})...")
     m = whisper.load_model(model)
     res = m.transcribe(audio_path, language="zh", word_timestamps=True, verbose=False)
 
@@ -99,23 +90,15 @@ def match_whisper(audio_path, sequence, model="medium"):
                 {"word": normalize(w["word"]), "start": w["start"], "end": w["end"]}
             )
 
-    print(f"识别单词数: {len(all_words)}")
-
     cursor = 0
     last_end = 0.0
 
-    print("\n[2/3] 文本匹配...")
+    # 基础匹配，不加任何 Padding
     for item in sequence:
-        # 如果有人工锁定，跳过识别
         if item["manual_start"] is not None:
             item["src_start"] = float(item["manual_start"])
             item["src_end"] = float(item["manual_end"])
             item["match"] = 1.0
-            print(
-                f"  ID {item['seq_id']:2d} 🔒 人工锁定: {item['src_start']}~{item['src_end']}"
-            )
-
-            # 更新游标，避免后面的识别乱套
             for idx, w in enumerate(all_words):
                 if idx > cursor and w["start"] >= item["src_end"]:
                     cursor = idx
@@ -129,131 +112,127 @@ def match_whisper(audio_path, sequence, model="medium"):
         best_s, best_e, best_score = None, None, 0.0
         new_cursor = cursor
 
-        for i in range(cursor, search_limit):
+        for idx in range(cursor, search_limit):
             phrase = ""
-            for j in range(i, min(len(all_words), i + 80)):
+            for j in range(idx, min(len(all_words), idx + 80)):
                 phrase += all_words[j]["word"]
                 sim = SequenceMatcher(None, target, phrase).ratio()
-
                 if sim > best_score:
                     best_score = sim
-                    best_s = all_words[i]["start"]
+                    best_s = all_words[idx]["start"]
                     best_e = all_words[j]["end"]
                     new_cursor = j + 1
-                    if sim > 0.9:
+                    if sim > 0.95:
                         break
-            if best_score > 0.9:
+            if best_score > 0.95:
                 break
 
-        valid = False
-        if best_s is not None:
-            if best_score > 0.3 and best_s >= last_end - 0.5:
-                valid = True
-
-        if valid:
+        if best_s is not None and best_score > 0.35 and best_s >= last_end - 0.5:
             item["src_start"] = round(best_s, 2)
             item["src_end"] = round(best_e, 2)
             item["match"] = round(best_score, 2)
             cursor = new_cursor
             last_end = best_e
         else:
-            item["src_start"] = 0.0  # 没找到
+            item["src_start"] = 0.0
 
     return sequence
 
 
-# =======================================================
-# 核心升级：声学精修 (Acoustic Refinement)
-# =======================================================
-
-
-def refine_timestamps(sequence, audio_path):
+def smart_lookahead_expand(sequence):
     """
-    拿着显微镜(pydub)去检查 Whisper 找到的时间点
-    如果发现时间点前后还有声音能量，说明 Whisper 漏听了，进行物理修正。
+    [核心] 前瞻性空隙检测算法
+    逻辑：Check (Curr + Next) < NextNext
     """
-    print("\n[3/3] 声学精修 (检测真实音频边缘)...")
+    print("\n[2/2] 执行前瞻性智能扩张 (Smart Lookahead)...")
 
-    # 加载整段源音频 (注意内存消耗，源音频很大可能需要切片读，这里简化处理)
-    print("正在加载源音频波形数据...")
-    full_audio = AudioSegment.from_file(audio_path)
+    count = 0
 
-    # 静音阈值 (dBFS)
-    # 这个值很关键，-45 到 -50 通常能检测到呼吸声，太高会漏，太低会把底噪当声音
-    SILENCE_THRESH = -50
+    # 我们需要修改序列中的值，所以用索引遍历
+    # 遍历到倒数第二个，因为需要 check next
+    N = len(sequence)
 
-    for i, item in enumerate(sequence):
-        # 跳过没识别到的 或 人工锁定的
-        if item["src_start"] < 0.1 or item["manual_start"] is not None:
+    for i in range(N):
+        curr = sequence[i]
+
+        # 如果没识别到，或者有人工锁定的，跳过
+        if curr["src_start"] < 0.1 or curr["manual_start"] is not None:
             continue
 
-        # 1. 确定搜索的安全边界 (不能侵入上一句的领地)
-        prev_limit = sequence[i - 1]["src_end"] if i > 0 else 0.0
-        # 给上一句留 0.1s 的安全距离
-        prev_limit += 0.1
+        whisper_dur = curr["src_end"] - curr["src_start"]
+        needed_dur = curr["tts_dur"]
 
-        original_start = item["src_start"]
-        original_end = item["src_end"]
+        # 只有当 TTS 比 Whisper 识别的长时，才需要扩张
+        if needed_dur > whisper_dur + 0.1:  # 0.1s 误差容忍
+            # === 开始前瞻 ===
 
-        # === 修正开始时间 (向左探测) ===
-        # 截取一段：[Whisper起点 - 2秒, Whisper起点]
-        check_start = max(prev_limit, original_start - 2.0)
-        if check_start < original_start:
-            segment = full_audio[int(check_start * 1000) : int(original_start * 1000)]
+            # 获取下一个片段 (Next)
+            if i + 1 < N:
+                next_clip = sequence[i + 1]
+                next_tts_dur = next_clip["tts_dur"]
+            else:
+                next_clip = None
+                next_tts_dur = 0
 
-            # 倒着找：从 Whisper 起点往回找，直到遇到静音
-            # pydub 的 detect_leading_silence 是从头找，所以我们先把音频反转
-            rev_seg = segment.reverse()
-            silence_len = silence.detect_leading_silence(
-                rev_seg, silence_threshold=SILENCE_THRESH, chunk_size=10
-            )
+            # 获取下下个片段 (Limit)
+            limit_start = 99999.0
+            for k in range(i + 2, N):
+                if sequence[k]["src_start"] > 0.1:
+                    limit_start = sequence[k]["src_start"]
+                    break
 
-            # 声音持续的长度 = 片段总长 - 头部静音(反转后的头部=实际的尾部)
-            sound_duration = (len(segment) - silence_len) / 1000.0
+            # 计算链式推导：
+            # 如果当前句完整播放，需要到什么时候？
+            projected_curr_end = curr["src_start"] + needed_dur
 
-            if sound_duration > 0.05:
-                # 意味着 Whisper 起点之前，还有 sound_duration 长度的声音
-                new_start = original_start - sound_duration
-                # 再次校准，不要太激进
-                new_start = max(prev_limit, new_start)
+            # 如果下一句也紧接着完整播放，需要到什么时候？
+            # 加上 0.1s 间隔
+            projected_chain_end = projected_curr_end + 0.1 + next_tts_dur
 
-                item["src_start"] = round(new_start, 2)
+            # === 核心判决 ===
+            # 如果 (当前+下一句) 结束时间 < (下下句开始 - 0.3s缓冲)
+            if projected_chain_end < limit_start - 0.3:
                 print(
-                    f"  ID {item['seq_id']:2d} 👈 修正开始: {original_start:.2f}s -> {new_start:.2f}s (找回 {original_start - new_start:.2f}s)"
+                    f"  ID {curr['seq_id']:2d} ⚠️ 空间不足 (TTS:{needed_dur:.1f}s > Src:{whisper_dur:.1f}s)"
+                )
+                print(
+                    f"    -> 前瞻检查: ID {curr['seq_id']} + ID {next_clip['seq_id'] if next_clip else 'End'} 总长约 {projected_chain_end - curr['src_start']:.1f}s"
+                )
+                print(
+                    f"    -> 可用空间: {limit_start - curr['src_start']:.1f}s (至 ID {sequence[min(i + 2, N - 1)]['seq_id']})"
+                )
+                print(f"    -> ✅ 通过! 执行扩张与推迟...")
+
+                # 1. 修正当前句
+                # 结束时间 = 开始 + TTS时长 (不再受 Whisper 限制)
+                curr["src_end"] = round(projected_curr_end, 2)
+
+                # 2. 修正下一句 (如果有，且没被人工锁定)
+                if next_clip and next_clip["manual_start"] is None:
+                    # 如果下一句原本的开始时间 < 当前句修正后的结束时间
+                    if next_clip["src_start"] < projected_curr_end + 0.1:
+                        old_start = next_clip["src_start"]
+                        # 强制推迟下一句的开始
+                        next_clip["src_start"] = round(projected_curr_end + 0.1, 2)
+                        # 顺便把下一句的结束时间也往后推，保持它的原有持续时长(或者TTS时长)
+                        # 这里我们保守一点，保证它至少能放完它的TTS
+                        min_end = next_clip["src_start"] + next_clip["tts_dur"]
+                        next_clip["src_end"] = round(
+                            max(next_clip["src_end"], min_end), 2
+                        )
+
+                        print(
+                            f"    -> 连锁修正: ID {next_clip['seq_id']} 推迟至 {next_clip['src_start']}s"
+                        )
+
+                count += 1
+            else:
+                # 空间不够，不敢动
+                print(
+                    f"  ID {curr['seq_id']:2d} 🚫 扩张失败: 会撞到后续节点 (需 {projected_chain_end:.1f}s > 限 {limit_start:.1f}s)"
                 )
 
-        # === 修正结束时间 (向右探测) ===
-        # 截取一段：[Whisper终点, Whisper终点 + 2秒]
-        # 下一句的开始时间是硬边界
-        next_limit = 99999.0
-        for j in range(i + 1, len(sequence)):
-            if sequence[j]["src_start"] > 0.1:
-                next_limit = sequence[j]["src_start"] - 0.1
-                break
-
-        check_end = min(next_limit, original_end + 2.0)
-
-        if check_end > original_end:
-            segment = full_audio[int(original_end * 1000) : int(check_end * 1000)]
-
-            # 正着找：从 Whisper 终点往后找，直到遇到静音
-            silence_start = silence.detect_leading_silence(
-                segment, silence_threshold=SILENCE_THRESH, chunk_size=10
-            )
-
-            # 静音开始的位置就是声音结束的位置
-            # 如果 silence_start == len(segment)，说明这段全是声音（或者没找到静音），那就全都要
-            # 如果 silence_start == 0，说明 Whisper 终点之后立刻就是静音，无需修正
-
-            found_extra = silence_start / 1000.0
-
-            if found_extra > 0.05:
-                new_end = original_end + found_extra
-                item["src_end"] = round(new_end, 2)
-                print(
-                    f"  ID {item['seq_id']:2d} 👉 修正结束: {original_end:.2f}s -> {new_end:.2f}s (找回 {new_end - original_end:.2f}s)"
-                )
-
+    print(f"\n智能修正完成: 共处理 {count} 处拥挤。\n")
     return sequence
 
 
@@ -277,7 +256,7 @@ def main():
                 "seq_id": uid,
                 "role": s.get("role", "未知"),
                 "text": s.get("text", "未知"),
-                "manual_start": s.get("manual_start"),  # 传递人工标记
+                "manual_start": s.get("manual_start"),
                 "manual_end": s.get("manual_end"),
                 "file": a["file"],
                 "path": a["path"],
@@ -288,12 +267,13 @@ def main():
             }
         )
 
-    # 1. 先用 Whisper 找大概位置
-    sequence = match_whisper(args.source_audio, sequence)
+    # 1. 基础识别 (不加 Padding)
+    sequence = match_whisper_base(args.source_audio, sequence)
 
-    # 2. 再用波形精修具体边缘 (关键步骤)
-    sequence = refine_timestamps(sequence, args.source_audio)
+    # 2. 前瞻性智能扩张 (你的算法)
+    sequence = smart_lookahead_expand(sequence)
 
+    # 保存
     data = [
         {
             "id": x["seq_id"],
@@ -311,7 +291,7 @@ def main():
     data.sort(key=lambda x: x["id"])
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
-    print(f"\n✅ 配置文件已保存: {args.output}")
+    print(f"\n✅ 已保存: {args.output}")
 
 
 if __name__ == "__main__":
