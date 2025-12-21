@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-ABEA 完整初始化脚本 (build_story_sequence.py) - V5.1 通用架构版
-修改点：
-1. 彻底移除硬编码的角色判断逻辑 (不再写死 HS=华生)。
-2. 完全信任 script.json 中的 role 字段。
-3. 即使文件名里没有角色信息，只要 ID 对得上，就能正确关联。
+ABEA 完整初始化脚本 (build_story_sequence.py) - V5.2 纯净脚本驱动版
+特点：
+1. [数据源] 文本来自 script.json (全文本)，音频来自文件夹扫描。
+2. [通用性] 角色信息完全解耦，由 json 定义。
+3. [纯净性] 移除所有"填缝/扩张"算法，完全展示 Whisper 对长文本的原始匹配结果。
 """
 
 import os
@@ -38,12 +38,12 @@ def normalize(text):
 
 
 # =======================================================
-# 1. 数据加载模块 (通用化)
+# 1. 数据加载模块
 # =======================================================
 
 
 def load_script_file(json_path):
-    """读取用户提供的完整台词脚本"""
+    """读取 script.json"""
     if not json_path or not os.path.exists(json_path):
         print(f"❌ 脚本文件不存在: {json_path}")
         sys.exit(1)
@@ -51,14 +51,13 @@ def load_script_file(json_path):
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # 转为字典映射： id -> info
     script_map = {}
     for item in data:
         uid = item.get("id") or item.get("sort")
         if uid is not None:
             script_map[int(uid)] = {
                 "text": item.get("text", ""),
-                "role": item.get("role", "未知角色"),  # 默认值，不猜
+                "role": item.get("role", "未知角色"),
             }
 
     print(f"✅ 已加载脚本数据: {len(script_map)} 条")
@@ -66,10 +65,7 @@ def load_script_file(json_path):
 
 
 def scan_audio_directories(folders):
-    """
-    通用扫描：只负责提取 ID 和 文件路径
-    不再尝试从文件名猜测角色
-    """
+    """扫描音频文件夹，建立 ID 索引"""
     audio_map = {}
 
     for path in folders:
@@ -81,13 +77,11 @@ def scan_audio_directories(folders):
             if not f.lower().endswith((".wav", ".mp3", ".flac")):
                 continue
 
-            # 核心逻辑：只认 ID (数字开头)
-            # 匹配 "21-xxx.wav" 或 "21_xxx.wav"
+            # 解析 ID (例如: 21-xxx.wav)
             m = re.match(r"^(\d+)[-_]", f)
             if m:
                 uid = int(m.group(1))
                 full_path = os.path.join(path, f)
-
                 audio_map[uid] = {
                     "file": f,
                     "path": full_path,
@@ -99,38 +93,32 @@ def scan_audio_directories(folders):
 
 
 def merge_data(script_map, audio_map):
-    """
-    将脚本数据(灵魂)注入到音频数据(肉体)中
-    """
+    """合并脚本与音频信息"""
     sequence = []
-
-    # 以音频文件为基准（因为必须有声音才能对齐）
     all_ids = sorted(audio_map.keys())
 
     for uid in all_ids:
         audio_info = audio_map[uid]
         script_info = script_map.get(uid)
 
-        # 默认值
-        final_text = ""
-        final_role = "未知"
-
+        # 优先使用脚本中的长文本和角色
         if script_info:
-            # 情况A: 脚本里有配置 -> 完美，直接用
             final_text = script_info["text"]
             final_role = script_info["role"]
+            source = "Script"
         else:
-            # 情况B: 脚本里漏写了这句 -> 尝试从文件名提取一点信息做兜底
-            print(f"⚠️ ID {uid} 在脚本json中未找到，将使用文件名作为文本")
+            # 兜底：如果没有脚本，尝试从文件名解析
+            print(f"⚠️ ID {uid} 未在脚本中找到，使用文件名兜底")
             m = re.match(r"^\d+[-_](.+)\.", audio_info["file"])
             final_text = m.group(1) if m else "未知文本"
             final_role = "未定义"
+            source = "Filename"
 
         sequence.append(
             {
                 "seq_id": uid,
-                "role": final_role,  # 直接使用 JSON 里的角色
-                "text": final_text,  # 直接使用 JSON 里的长文本
+                "role": final_role,
+                "text": final_text,
                 "file": audio_info["file"],
                 "path": audio_info["path"],
                 "tts_dur": audio_info["duration"],
@@ -140,17 +128,23 @@ def merge_data(script_map, audio_map):
             }
         )
 
+        # 调试打印：检查关键的 ID 21 是否用上了长文本
+        if uid == 21:
+            print(f"  [ID 21] 匹配源: {source} | 文本: {final_text[:20]}...")
+
     return sequence
 
 
 # =======================================================
-# 2. Whisper 匹配与填缝模块 (保持 V4.0 逻辑不变)
+# 2. Whisper 匹配模块 (纯净版)
 # =======================================================
 
 
-def match_whisper_v3(audio_path, sequence, model="medium"):
-    print(f"\n[1/2] Whisper 识别中 ({model})...")
+def match_whisper_pure(audio_path, sequence, model="medium"):
+    print(f"\n[Whisper] 正在识别源音频 ({model})...")
     m = whisper.load_model(model)
+
+    # 获取单词级时间戳
     res = m.transcribe(audio_path, language="zh", word_timestamps=True, verbose=False)
 
     all_words = []
@@ -160,89 +154,63 @@ def match_whisper_v3(audio_path, sequence, model="medium"):
                 {"word": normalize(w["word"]), "start": w["start"], "end": w["end"]}
             )
 
+    print(f"识别单词数: {len(all_words)}")
+
     cursor = 0
     last_end = 0.0
 
+    print("\n开始匹配时间轴...")
+
     for item in sequence:
         target = normalize(item["text"])
-        # 搜索范围加大，适应长文本
+        # 搜索窗口
         search_limit = min(len(all_words), cursor + 300)
 
         best_s, best_e, best_score = None, None, 0
         new_cursor = cursor
 
+        # 暴力搜索最佳匹配段落
         for i in range(cursor, search_limit):
             phrase = ""
+            # 因为是长文本，尝试拼凑更多的词
             for j in range(i, min(len(all_words), i + 60)):
                 phrase += all_words[j]["word"]
                 sim = SequenceMatcher(None, target, phrase).ratio()
+
                 if sim > best_score:
                     best_score = sim
                     best_s = all_words[i]["start"]
                     best_e = all_words[j]["end"]
                     new_cursor = j + 1
-                    if sim > 0.85:
+
+                    # 如果匹配度非常高，直接锁定
+                    if sim > 0.90:
                         break
-            if best_score > 0.85:
+            if best_score > 0.90:
                 break
 
+        # 判定逻辑：只要不是错得离谱(时间倒流)，就采纳原始结果
         valid = False
         if best_s is not None:
-            if best_score > 0.35 and best_s >= last_end - 0.5:
+            if best_score > 0.4 and best_s >= last_end - 0.5:
                 valid = True
 
         if valid:
-            item["src_start"] = round(best_s, 2)
-            item["src_end"] = round(best_e, 2)
+            item["src_start"] = round(best_s, 3)
+            item["src_end"] = round(best_e, 3)
             item["match"] = round(best_score, 2)
+
+            # 更新游标
             cursor = new_cursor
             last_end = best_e
+            status = "✅"
+        else:
+            # 没匹配到也不瞎猜，保持 0，方便人工排查
+            status = "❌"
 
-    return sequence
-
-
-def expand_boundaries(sequence):
-    print("\n[2/2] 智能填缝修正...")
-    for i in range(len(sequence)):
-        curr = sequence[i]
-        prev_end = sequence[i - 1]["src_end"] if i > 0 else 0.0
-
-        next_start = 99999.0
-        for j in range(i + 1, len(sequence)):
-            if sequence[j]["src_start"] > 0.1:
-                next_start = sequence[j]["src_start"]
-                break
-
-        if curr["src_start"] < 0.1:
-            curr["src_start"] = round(prev_end + 0.1, 2)
-            curr["src_end"] = round(
-                min(next_start - 0.1, curr["src_start"] + curr["tts_dur"]), 2
-            )
-            print(
-                f"  ID {curr['seq_id']} [补全] -> {curr['src_start']}~{curr['src_end']}"
-            )
-            continue
-
-        whisper_dur = curr["src_end"] - curr["src_start"]
-        needed = curr["tts_dur"]
-
-        if whisper_dur < needed:
-            deficit = needed - whisper_dur + 0.2
-            gap_left = max(0, curr["src_start"] - prev_end - 0.1)
-            take_left = min(gap_left, deficit)
-            curr["src_start"] -= take_left
-            deficit -= take_left
-
-            if deficit > 0:
-                gap_right = max(0, next_start - curr["src_end"] - 0.1)
-                take_right = min(gap_right, deficit)
-                curr["src_end"] += take_right
-
-            curr["src_start"] = round(curr["src_start"], 2)
-            curr["src_end"] = round(curr["src_end"], 2)
-            print(
-                f"  ID {curr['seq_id']} [扩张] -> 修正:{curr['src_end'] - curr['src_start']:.1f}s"
-            )
+        print(
+            f"  ID {item['seq_id']:2d} {status} {item['src_start']:6.2f}s~{item['src_end']:6.2f}s (分:{item['match']:.2f})"
+        )
 
     return sequence
 
@@ -262,6 +230,9 @@ def save_output(seq, path):
         for x in seq
     ]
 
+    # 最终按 ID 排序
+    data.sort(key=lambda x: x["id"])
+
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
     print(f"\n✅ 配置文件已保存: {path}")
@@ -273,28 +244,25 @@ def save_output(seq, path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ABEA V5.1 通用版")
+    parser = argparse.ArgumentParser(description="ABEA V5.2 纯净版")
     parser.add_argument("source_audio", help="源音频文件")
     parser.add_argument("-s", "--script", required=True, help="脚本JSON文件")
-    # 允许传入多个音频文件夹
     parser.add_argument(
-        "-f", "--folders", required=True, nargs="+", help="音频文件夹列表 (支持多个)"
+        "-f", "--folders", required=True, nargs="+", help="音频文件夹列表"
     )
     parser.add_argument("-o", "--output", default="final_config.json")
 
     args = parser.parse_args()
 
     print("=" * 50)
-    print("ABEA V5.1 - 脚本驱动通用版")
+    print("ABEA V5.2 - 纯净脚本驱动版")
     print("=" * 50)
 
-    # 1. 加载脚本 (真理来源)
+    # 1. 加载资源
     script = load_script_file(args.script)
-
-    # 2. 扫描所有文件夹 (获取物理文件)
     audio_map = scan_audio_directories(args.folders)
 
-    # 3. 合并
+    # 2. 合并信息
     sequence = merge_data(script, audio_map)
     sequence.sort(key=lambda x: x["seq_id"])
 
@@ -302,13 +270,10 @@ def main():
         print("❌ 未找到有效数据")
         sys.exit(1)
 
-    print(f"准备处理 {len(sequence)} 个片段...")
+    # 3. 执行纯净匹配 (无填缝)
+    sequence = match_whisper_pure(args.source_audio, sequence)
 
-    # 4. 识别与修正
-    sequence = match_whisper_v3(args.source_audio, sequence)
-    sequence = expand_boundaries(sequence)
-
-    # 5. 输出
+    # 4. 输出
     save_output(sequence, args.output)
 
 
