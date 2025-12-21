@@ -130,21 +130,19 @@ def to_simp(t):
 
 def match_whisper(audio_path, sequence, model="medium"):
     """
-    Whisper时间戳匹配 (升级版：基于词级 word_timestamps 匹配)
-    解决多句话挤在同一个时间点的问题
+    Whisper时间戳匹配 (V3.0 修复版)
+    核心修复：强制游标 cursor 向前推进，防止时间戳回滚
     """
     print(f"\n正在加载 Whisper 模型 ({model})...")
     m = whisper.load_model(model)
 
     print(f"正在转录源音频: {audio_path}")
-    # 关键：获取 word_timestamps
     res = m.transcribe(audio_path, language="zh", word_timestamps=True, verbose=False)
 
-    # === 1. 预处理：将所有 Word 展平为一个大列表 ===
+    # 1. 展平 Word 列表
     all_words = []
     for seg in res.get("segments", []):
         for word_info in seg.get("words", []):
-            # 清洗单词中的标点，保留纯文本
             clean_w = normalize(word_info["word"])
             if clean_w:
                 all_words.append(
@@ -157,26 +155,45 @@ def match_whisper(audio_path, sequence, model="medium"):
 
     print(f"识别出 {len(all_words)} 个单词，总时长 {res['segments'][-1]['end']:.1f}s")
 
-    # === 2. 序列匹配 ===
-    cursor = 0  # 当前匹配到的单词索引
+    # 游标：指向 all_words 中当前搜索的起始位置
+    cursor = 0
 
-    print("\n开始匹配时间戳 (Word-Level)...")
-    for item in sequence:
+    # 上一句的结束时间（用于兜底）
+    last_valid_end_time = 0.0
+
+    print("\n开始匹配时间戳 (强制递增版)...")
+
+    for idx, item in enumerate(sequence):
         target_text = normalize(item["text"])
+        target_len = len(target_text)
+
+        # 预估这句话大概包含多少个词 (假设平均一个词 1-2 个字)
+        # 这个窗口大小不是死的，只是为了提取 text
+        approx_word_count = max(1, len(target_text))
 
         best_start = None
         best_end = None
-        best_score = 0
-        match_len = 0
+        best_score = -1.0
+        best_end_index = cursor  # 记录最佳匹配结束时的单词索引
 
-        # 搜索窗口：从上次结束的位置往后找 50 个词
-        search_limit = min(len(all_words), cursor + 50)
+        # === 搜索窗口 ===
+        # 范围：从游标 cursor 开始，往后找 100 个词 (防止跨度太大)
+        search_range = min(len(all_words), cursor + 100)
 
-        for i in range(cursor, search_limit):
+        for i in range(cursor, search_range):
+            # 尝试组合接下来的一段词
+            # 我们动态调整组合长度，尝试匹配目标文本
             current_phrase = ""
-            # 尝试组合接下来最多 20 个词，看看是不是当前这句话
-            for j in range(i, min(len(all_words), i + 20)):
+            current_end_idx = i
+
+            # 内层循环：拼凑单词，直到长度接近目标文本
+            for j in range(i, min(len(all_words), i + 30)):  # 一句话最多拼30个词
                 current_phrase += all_words[j]["word"]
+                current_end_idx = j
+
+                # 如果拼凑的长度已经大大超过目标文本，就没必要继续拼了
+                if len(current_phrase) > target_len + 5:
+                    break
 
                 # 计算相似度
                 sim = SequenceMatcher(None, target_text, current_phrase).ratio()
@@ -184,37 +201,51 @@ def match_whisper(audio_path, sequence, model="medium"):
                 if sim > best_score:
                     best_score = sim
                     best_start = all_words[i]["start"]
-                    best_end = all_words[j]["end"]
-                    match_len = j - i + 1
+                    best_end = all_words[current_end_idx]["end"]
+                    best_end_index = current_end_idx + 1  # 指向下一个词
 
-                    # 匹配度够高就认定找到了
-                    if sim > 0.85:
-                        break
+        # === 决策逻辑 ===
 
-            if best_score > 0.85:
-                cursor = i + match_len  # 更新游标
-                break
+        # 判定是否为有效匹配
+        # 1. 分数要及格 (比如 > 0.4)
+        # 2. 或者分数虽然低点，但时间顺序是合理的 (>= 上一句结束时间)
+        is_valid = False
+        if best_start is not None:
+            if best_score > 0.5:
+                is_valid = True
+            elif best_score > 0.3 and best_start >= last_valid_end_time:
+                is_valid = True
 
-        # 如果实在没匹配到，就只能先空着，或者稍微往后推一点点
-        if not best_start:
-            prev_end = (
-                sequence[sequence.index(item) - 1]["src_end"]
-                if sequence.index(item) > 0
-                else 0
-            )
-            best_start = prev_end + 0.1
-            best_end = prev_end + 0.2
-            best_score = 0.0
+        if is_valid:
+            # 采纳匹配结果
+            item["src_start"] = round(best_start, 3)
+            item["src_end"] = round(best_end, 3)
+            item["match"] = round(best_score, 2)
 
-        item["src_start"] = round(best_start, 3)
-        item["src_end"] = round(best_end, 3)
-        item["match"] = round(best_score, 2)
+            # 关键：更新游标！让下一次搜索从这里开始
+            cursor = best_end_index
+            last_valid_end_time = best_end
+
+            status = "✅"
+        else:
+            # 匹配失败 (可能源音频这段是纯音乐，或者Whisper没识别出来)
+            # 兜底策略：紧接着上一句后面，给一个估算时间
+            # 假设语速 4字/秒
+            est_duration = max(1.0, len(target_text) * 0.25)
+
+            item["src_start"] = round(last_valid_end_time + 0.1, 3)
+            item["src_end"] = round(last_valid_end_time + 0.1 + est_duration, 3)
+            item["match"] = 0.0
+
+            # 这种情况下，游标不乱动，或者只稍微往前挪一点点
+            # 但为了防止死循环，我们还是得更新 last_valid_end_time
+            last_valid_end_time = item["src_end"]
+            status = "⚠️"
+
         item["tts_dur"] = get_duration(item["path"])
-
         label = f"{item['role']}"
-        # 打印出来看看，现在 start 时间应该都不一样了
         print(
-            f"  {item['seq_id']:2d}. {label:8s} {item['src_start']:6.2f}s (匹配:{item['match']:.2f}) {item['text'][:10]}..."
+            f"  {item['seq_id']:2d}. {status} {label:8s} {item['src_start']:6.2f}s (分:{item['match']:.2f}) {item['text'][:10]}..."
         )
 
     return sequence
