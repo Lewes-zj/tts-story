@@ -125,46 +125,96 @@ def to_simp(t):
     return t.translate(T2S)
 
 
+# 在 build_story_sequence.py 中替换此函数
+
+
 def match_whisper(audio_path, sequence, model="medium"):
-    """Whisper时间戳匹配 (逻辑不变)"""
+    """
+    Whisper时间戳匹配 (升级版：基于词级 word_timestamps 匹配)
+    解决多句话挤在同一个时间点的问题
+    """
     print(f"\n正在加载 Whisper 模型 ({model})...")
     m = whisper.load_model(model)
 
     print(f"正在转录源音频: {audio_path}")
+    # 关键：获取 word_timestamps
     res = m.transcribe(audio_path, language="zh", word_timestamps=True, verbose=False)
-    segs = res.get("segments", [])
-    print(f"识别出 {len(segs)} 个段落, 总时长 {segs[-1]['end']:.1f}s")
 
-    widx = 0
+    # === 1. 预处理：将所有 Word 展平为一个大列表 ===
+    all_words = []
+    for seg in res.get("segments", []):
+        for word_info in seg.get("words", []):
+            # 清洗单词中的标点，保留纯文本
+            clean_w = normalize(word_info["word"])
+            if clean_w:
+                all_words.append(
+                    {
+                        "word": clean_w,
+                        "start": word_info["start"],
+                        "end": word_info["end"],
+                    }
+                )
 
-    print("\n开始匹配时间戳...")
+    print(f"识别出 {len(all_words)} 个单词，总时长 {res['segments'][-1]['end']:.1f}s")
+
+    # === 2. 序列匹配 ===
+    cursor = 0  # 当前匹配到的单词索引
+
+    print("\n开始匹配时间戳 (Word-Level)...")
     for item in sequence:
-        txt = item["text"]
-        best_start, best_end, best_score = None, None, 0
+        target_text = normalize(item["text"])
 
-        # 搜索窗口
-        for si in range(max(0, widx - 3), min(len(segs), widx + 12)):
-            combined = ""
-            for ei in range(si, min(si + 5, len(segs))):
-                combined += segs[ei]["text"]
-                s = text_similarity(txt, to_simp(combined))
-                if s > best_score:
-                    best_score = s
-                    best_start = segs[si]["start"]
-                    best_end = segs[ei]["end"]
-                    widx = ei + 1
-                if s > 0.75:
-                    break
-            if best_score > 0.75:
+        best_start = None
+        best_end = None
+        best_score = 0
+        match_len = 0
+
+        # 搜索窗口：从上次结束的位置往后找 50 个词
+        search_limit = min(len(all_words), cursor + 50)
+
+        for i in range(cursor, search_limit):
+            current_phrase = ""
+            # 尝试组合接下来最多 20 个词，看看是不是当前这句话
+            for j in range(i, min(len(all_words), i + 20)):
+                current_phrase += all_words[j]["word"]
+
+                # 计算相似度
+                sim = SequenceMatcher(None, target_text, current_phrase).ratio()
+
+                if sim > best_score:
+                    best_score = sim
+                    best_start = all_words[i]["start"]
+                    best_end = all_words[j]["end"]
+                    match_len = j - i + 1
+
+                    # 匹配度够高就认定找到了
+                    if sim > 0.85:
+                        break
+
+            if best_score > 0.85:
+                cursor = i + match_len  # 更新游标
                 break
 
-        item["src_start"] = round(best_start, 3) if best_start else 0
-        item["src_end"] = round(best_end, 3) if best_end else 0
+        # 如果实在没匹配到，就只能先空着，或者稍微往后推一点点
+        if not best_start:
+            prev_end = (
+                sequence[sequence.index(item) - 1]["src_end"]
+                if sequence.index(item) > 0
+                else 0
+            )
+            best_start = prev_end + 0.1
+            best_end = prev_end + 0.2
+            best_score = 0.0
+
+        item["src_start"] = round(best_start, 3)
+        item["src_end"] = round(best_end, 3)
         item["match"] = round(best_score, 2)
+        item["tts_dur"] = get_duration(item["path"])
 
         label = f"{item['role']}"
+        # 打印出来看看，现在 start 时间应该都不一样了
         print(
-            f"  {item['seq_id']:2d}. {label:8s} {item['src_start']:6.1f}s~{item['src_end']:6.1f}s ({item['match']:.2f}) {txt[:15]}..."
+            f"  {item['seq_id']:2d}. {label:8s} {item['src_start']:6.2f}s (匹配:{item['match']:.2f}) {item['text'][:10]}..."
         )
 
     return sequence
