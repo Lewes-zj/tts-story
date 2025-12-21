@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
-ABEA 完整初始化脚本 (build_story_sequence.py) - V10.0 前瞻性智能修正版
-基础架构：V5.1 通用版
-核心升级：
-引入"前瞻性空隙检测算法" (Lookahead Gap Detection)。
-- 当 ID 3 嫌挤时，不瞎扩，而是先看 ID 4 和 ID 5。
-- 如果 (ID3 + ID4) 的总时长能塞进 ID 5 之前，就大胆扩张 ID 3，并自动推迟 ID 4。
-- 彻底解决重叠问题，同时保证不撞到后续的关键时间点。
+ABEA 完整初始化脚本 (build_story_sequence.py) - V5.1 通用架构版
+修改点：
+1. 彻底移除硬编码的角色判断逻辑 (不再写死 HS=华生)。
+2. 完全信任 script.json 中的 role 字段。
+3. 即使文件名里没有角色信息，只要 ID 对得上，就能正确关联。
 """
 
 import os
@@ -53,16 +51,14 @@ def load_script_file(json_path):
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    # 转为字典映射： id -> info
     script_map = {}
     for item in data:
         uid = item.get("id") or item.get("sort")
         if uid is not None:
             script_map[int(uid)] = {
                 "text": item.get("text", ""),
-                "role": item.get("role", "未知角色"),
-                # 支持读取手动锁定的时间戳
-                "manual_start": item.get("start"),
-                "manual_end": item.get("end"),
+                "role": item.get("role", "未知角色"),  # 默认值，不猜
             }
 
     print(f"✅ 已加载脚本数据: {len(script_map)} 条")
@@ -70,7 +66,10 @@ def load_script_file(json_path):
 
 
 def scan_audio_directories(folders):
-    """通用扫描：只负责提取 ID 和 文件路径"""
+    """
+    通用扫描：只负责提取 ID 和 文件路径
+    不再尝试从文件名猜测角色
+    """
     audio_map = {}
 
     for path in folders:
@@ -82,10 +81,13 @@ def scan_audio_directories(folders):
             if not f.lower().endswith((".wav", ".mp3", ".flac")):
                 continue
 
+            # 核心逻辑：只认 ID (数字开头)
+            # 匹配 "21-xxx.wav" 或 "21_xxx.wav"
             m = re.match(r"^(\d+)[-_]", f)
             if m:
                 uid = int(m.group(1))
                 full_path = os.path.join(path, f)
+
                 audio_map[uid] = {
                     "file": f,
                     "path": full_path,
@@ -97,25 +99,28 @@ def scan_audio_directories(folders):
 
 
 def merge_data(script_map, audio_map):
-    """将脚本数据注入到音频数据中"""
+    """
+    将脚本数据(灵魂)注入到音频数据(肉体)中
+    """
     sequence = []
+
+    # 以音频文件为基准（因为必须有声音才能对齐）
     all_ids = sorted(audio_map.keys())
 
     for uid in all_ids:
         audio_info = audio_map[uid]
         script_info = script_map.get(uid)
 
+        # 默认值
         final_text = ""
         final_role = "未知"
-        manual_start = None
-        manual_end = None
 
         if script_info:
+            # 情况A: 脚本里有配置 -> 完美，直接用
             final_text = script_info["text"]
             final_role = script_info["role"]
-            manual_start = script_info.get("manual_start")
-            manual_end = script_info.get("manual_end")
         else:
+            # 情况B: 脚本里漏写了这句 -> 尝试从文件名提取一点信息做兜底
             print(f"⚠️ ID {uid} 在脚本json中未找到，将使用文件名作为文本")
             m = re.match(r"^\d+[-_](.+)\.", audio_info["file"])
             final_text = m.group(1) if m else "未知文本"
@@ -124,16 +129,14 @@ def merge_data(script_map, audio_map):
         sequence.append(
             {
                 "seq_id": uid,
-                "role": final_role,
-                "text": final_text,
+                "role": final_role,  # 直接使用 JSON 里的角色
+                "text": final_text,  # 直接使用 JSON 里的长文本
                 "file": audio_info["file"],
                 "path": audio_info["path"],
                 "tts_dur": audio_info["duration"],
                 "src_start": 0.0,
                 "src_end": 0.0,
                 "match": 0.0,
-                "manual_start": manual_start,
-                "manual_end": manual_end,
             }
         )
 
@@ -141,7 +144,7 @@ def merge_data(script_map, audio_map):
 
 
 # =======================================================
-# 2. Whisper 匹配模块
+# 2. Whisper 匹配与填缝模块 (保持 V4.0 逻辑不变)
 # =======================================================
 
 
@@ -161,21 +164,8 @@ def match_whisper_v3(audio_path, sequence, model="medium"):
     last_end = 0.0
 
     for item in sequence:
-        # 如果有人工锁定，直接应用并跳过识别
-        if item["manual_start"] is not None:
-            item["src_start"] = float(item["manual_start"])
-            item["src_end"] = float(item["manual_end"])
-            item["match"] = 1.0
-            # 更新游标
-            for idx, w in enumerate(all_words):
-                if idx > cursor and w["start"] >= item["src_end"]:
-                    cursor = idx
-                    break
-            last_end = item["src_end"]
-            print(f"  ID {item['seq_id']:2d} 🔒 人工锁定")
-            continue
-
         target = normalize(item["text"])
+        # 搜索范围加大，适应长文本
         search_limit = min(len(all_words), cursor + 300)
 
         best_s, best_e, best_score = None, None, 0
@@ -211,129 +201,49 @@ def match_whisper_v3(audio_path, sequence, model="medium"):
     return sequence
 
 
-# =======================================================
-# 3. 前瞻性智能修正模块 (核心算法)
-# =======================================================
-
-
-def smart_lookahead_expand(sequence):
-    """
-    [核心] 前瞻性空隙检测算法
-    逻辑：当当前片段(TTS) > 识别片段(Whisper)时，
-    检查 (当前TTS + 下一个TTS) 是否小于 (下下个开始时间 - 缓冲)。
-    如果满足，则允许扩张当前片段，并自动推迟下一个片段。
-    """
-    print("\n[2/2] 执行前瞻性智能扩张 (Smart Lookahead)...")
-
-    count = 0
-    N = len(sequence)
-
-    for i in range(N):
+def expand_boundaries(sequence):
+    print("\n[2/2] 智能填缝修正...")
+    for i in range(len(sequence)):
         curr = sequence[i]
-
-        # 1. 基础数据准备
-        # 上一句的结束时间
         prev_end = sequence[i - 1]["src_end"] if i > 0 else 0.0
 
-        # 如果当前句没识别到(start=0)，直接尝试填入空隙（兜底逻辑）
-        if curr["src_start"] < 0.1 and curr["manual_start"] is None:
-            # 找下一个锚点
-            next_start_limit = 99999.0
-            for k in range(i + 1, N):
-                if sequence[k]["src_start"] > 0.1:
-                    next_start_limit = sequence[k]["src_start"]
-                    break
+        next_start = 99999.0
+        for j in range(i + 1, len(sequence)):
+            if sequence[j]["src_start"] > 0.1:
+                next_start = sequence[j]["src_start"]
+                break
 
+        if curr["src_start"] < 0.1:
             curr["src_start"] = round(prev_end + 0.1, 2)
             curr["src_end"] = round(
-                min(next_start_limit - 0.1, curr["src_start"] + curr["tts_dur"]), 2
+                min(next_start - 0.1, curr["src_start"] + curr["tts_dur"]), 2
             )
             print(
-                f"  ID {curr['seq_id']:2d} 🔧 兜底填补: {curr['src_start']}~{curr['src_end']}"
+                f"  ID {curr['seq_id']} [补全] -> {curr['src_start']}~{curr['src_end']}"
             )
             continue
 
-        # 2. 检查是否需要扩张
         whisper_dur = curr["src_end"] - curr["src_start"]
-        needed_dur = curr["tts_dur"]
+        needed = curr["tts_dur"]
 
-        # 只有当 TTS 时长 > Whisper识别时长 + 0.1s 时才触发
-        if needed_dur > whisper_dur + 0.1 and curr["manual_start"] is None:
-            # === 开始前瞻 ===
+        if whisper_dur < needed:
+            deficit = needed - whisper_dur + 0.2
+            gap_left = max(0, curr["src_start"] - prev_end - 0.1)
+            take_left = min(gap_left, deficit)
+            curr["src_start"] -= take_left
+            deficit -= take_left
 
-            # 获取下一个片段 (Next)
-            if i + 1 < N:
-                next_clip = sequence[i + 1]
-                next_tts_dur = next_clip["tts_dur"]
-            else:
-                next_clip = None
-                next_tts_dur = 0
+            if deficit > 0:
+                gap_right = max(0, next_start - curr["src_end"] - 0.1)
+                take_right = min(gap_right, deficit)
+                curr["src_end"] += take_right
 
-            # 获取下下个片段 (Limit) 作为硬边界
-            limit_start = 99999.0
-            # 从 i+2 开始找第一个有效的时间点
-            for k in range(i + 2, N):
-                if sequence[k]["src_start"] > 0.1:
-                    limit_start = sequence[k]["src_start"]
-                    break
+            curr["src_start"] = round(curr["src_start"], 2)
+            curr["src_end"] = round(curr["src_end"], 2)
+            print(
+                f"  ID {curr['seq_id']} [扩张] -> 修正:{curr['src_end'] - curr['src_start']:.1f}s"
+            )
 
-            # 计算链式推导：
-            # A. 如果当前句完整播放，需要到什么时候？
-            projected_curr_end = curr["src_start"] + needed_dur
-
-            # B. 如果下一句也紧接着完整播放，需要到什么时候？(加上 0.1s 间隔)
-            projected_chain_end = projected_curr_end + 0.1 + next_tts_dur
-
-            # === 核心判决 ===
-            # 如果 (当前+下一句) 结束时间 < (硬边界 - 0.2s缓冲)
-            if projected_chain_end < limit_start - 0.2:
-                print(
-                    f"  ID {curr['seq_id']:2d} ⚠️ 空间不足 (TTS:{needed_dur:.1f}s > Src:{whisper_dur:.1f}s)"
-                )
-                print(
-                    f"    -> 前瞻检查: ID{curr['seq_id']} + ID{next_clip['seq_id'] if next_clip else 'End'} 预计结束于 {projected_chain_end:.1f}s"
-                )
-                print(f"    -> 硬边界限: {limit_start:.1f}s (安全缓冲 0.2s)")
-                print(f"    -> ✅ 通过! 执行扩张与推迟...")
-
-                # 1. 修正当前句
-                # 结束时间 = 开始 + TTS时长 (不再受 Whisper 限制)
-                curr["src_end"] = round(projected_curr_end, 2)
-
-                # 2. 修正下一句 (如果有，且没被人工锁定)
-                if next_clip and next_clip["manual_start"] is None:
-                    # 如果下一句原本的开始时间 < 当前句修正后的结束时间
-                    if next_clip["src_start"] < projected_curr_end + 0.1:
-                        # 强制推迟下一句的开始
-                        next_clip["src_start"] = round(projected_curr_end + 0.1, 2)
-
-                        # 顺便把下一句的结束时间也往后推，保证它能放完
-                        min_end = next_clip["src_start"] + next_clip["tts_dur"]
-                        next_clip["src_end"] = round(
-                            max(next_clip["src_end"], min_end), 2
-                        )
-
-                        print(
-                            f"    -> 连锁修正: ID {next_clip['seq_id']} 推迟至 {next_clip['src_start']}s"
-                        )
-
-                count += 1
-            else:
-                # 空间不够，尝试仅向左扩张（利用上一句的空隙）
-                gap_left = max(0, curr["src_start"] - prev_end - 0.1)
-                deficit = needed_dur - whisper_dur
-
-                if gap_left > 0.1:
-                    take = min(gap_left, deficit)
-                    curr["src_start"] -= take
-                    curr["src_start"] = round(curr["src_start"], 2)
-                    print(
-                        f"  ID {curr['seq_id']:2d} ⚠️ 仅向左扩张 {take:.2f}s (右侧空间不足)"
-                    )
-                else:
-                    print(f"  ID {curr['seq_id']:2d} 🚫 无法扩张 (前后均无空间)")
-
-    print(f"\n智能修正完成: 共处理 {count} 处拥挤。\n")
     return sequence
 
 
@@ -363,9 +273,10 @@ def save_output(seq, path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ABEA V10.0 前瞻性智能修正版")
+    parser = argparse.ArgumentParser(description="ABEA V5.1 通用版")
     parser.add_argument("source_audio", help="源音频文件")
     parser.add_argument("-s", "--script", required=True, help="脚本JSON文件")
+    # 允许传入多个音频文件夹
     parser.add_argument(
         "-f", "--folders", required=True, nargs="+", help="音频文件夹列表 (支持多个)"
     )
@@ -374,14 +285,16 @@ def main():
     args = parser.parse_args()
 
     print("=" * 50)
-    print("ABEA V10.0 - 前瞻性智能修正")
+    print("ABEA V5.1 - 脚本驱动通用版")
     print("=" * 50)
 
-    # 1. 加载
+    # 1. 加载脚本 (真理来源)
     script = load_script_file(args.script)
+
+    # 2. 扫描所有文件夹 (获取物理文件)
     audio_map = scan_audio_directories(args.folders)
 
-    # 2. 合并
+    # 3. 合并
     sequence = merge_data(script, audio_map)
     sequence.sort(key=lambda x: x["seq_id"])
 
@@ -391,11 +304,9 @@ def main():
 
     print(f"准备处理 {len(sequence)} 个片段...")
 
-    # 3. 识别
+    # 4. 识别与修正
     sequence = match_whisper_v3(args.source_audio, sequence)
-
-    # 4. 核心：前瞻性修正
-    sequence = smart_lookahead_expand(sequence)
+    sequence = expand_boundaries(sequence)
 
     # 5. 输出
     save_output(sequence, args.output)
