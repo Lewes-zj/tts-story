@@ -37,7 +37,6 @@ class VoiceCloneParams:
         emo_alpha (Optional[float]): 情感混合系数，范围 [0.0, 1.0]，默认 0.65
         emo_vector (Optional[List[float]]): 情感向量，8维向量
         temperature (float): 采样温度，控制随机性，默认 0.3
-        top_k (int): Top-K 采样参数，默认 30
         top_p (float): Top-P (nucleus) 采样参数，默认 0.8
         verbose (bool): 是否输出详细日志，默认 True
     """
@@ -49,7 +48,6 @@ class VoiceCloneParams:
     emo_alpha: float = 0.65
     emo_vector: Optional[List[float]] = None
     temperature: float = 0.3
-    top_k: int = 30
     top_p: float = 0.8
     verbose: bool = True
 
@@ -67,8 +65,6 @@ class VoiceCloneParams:
             raise ValueError("emo_vector 必须是长度为 8 的向量")
         if not (0.0 <= self.temperature <= 2.0):
             raise ValueError("temperature 必须在 [0.0, 2.0] 范围内")
-        if not (1 <= self.top_k <= 100):
-            raise ValueError("top_k 必须在 [1, 100] 范围内")
         if not (0.0 <= self.top_p <= 1.0):
             raise ValueError("top_p 必须在 [0.0, 1.0] 范围内")
 
@@ -220,7 +216,6 @@ class IndexTTS2VoiceCloner:
                 text=params.text,
                 emo_audio_prompt=params.emo_audio_prompt,
                 temperature=params.temperature,
-                top_k=params.top_k,
                 top_p=params.top_p,
                 output_path=params.output_path,
                 emo_alpha=params.emo_alpha,
@@ -297,7 +292,6 @@ class IndexTTS2VoiceCloner:
             text=text,
             spk_audio_prompt=spk_audio_prompt,
             emo_audio_prompt=emo_audio_prompt,
-            top_k=30,
             top_p=0.8,
             temperature=0.3,
             output_path=output_path,
