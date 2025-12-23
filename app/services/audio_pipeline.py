@@ -26,16 +26,19 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 # 导入重构后的脚本函数
-from scripts.auto_voice_cloner import run_voice_cloning
-from scripts.trim_silence_tool import run_trim_silence
-from scripts.build_story_sequence import run_build_sequence
-from scripts.align import run_alignment
-from scripts.user_story_book_dao import UserStoryBookDAO
+from scripts.auto_voice_cloner import run_voice_cloning  # noqa: E402
+from scripts.trim_silence_tool import run_trim_silence  # noqa: E402
+from scripts.build_story_sequence import run_build_sequence  # noqa: E402
+from scripts.align import run_alignment  # noqa: E402
+from scripts.user_story_book_dao import UserStoryBookDAO  # noqa: E402
 
-from app.services.task_manager import task_manager
-from app.models import TaskStatus
+from app.services.task_manager import task_manager  # noqa: E402
+from app.models import TaskStatus  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+# 对外基础地址，用于拼接音频可访问URL
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
 # ============================================================================
 # GPU 并发控制 (全局 Semaphore)
@@ -78,11 +81,17 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
     sequence_json = task_dir / "3_sequence.json"
     final_output = task_dir / "4_final_output.wav"
 
+    def _build_output_url() -> str:
+        """构造前端可访问的音频URL"""
+        if not PUBLIC_BASE_URL:
+            return f"/media/{task_id}/4_final_output.wav"
+        return f"{PUBLIC_BASE_URL}/media/{task_id}/4_final_output.wav"
+
     try:
         # 获取 GPU 锁 (阻塞等待，直到其他任务完成)
-        logger.info(f"⏳ 等待 GPU 资源...")
+        logger.info("⏳ 等待 GPU 资源...")
         with gpu_semaphore:
-            logger.info(f"✅ 已获取 GPU 资源，开始执行")
+            logger.info("✅ 已获取 GPU 资源，开始执行")
 
             # ================================================================
             # Step 1: Voice Cloning (语音克隆)
@@ -94,7 +103,7 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
                 current_step=1,
             )
 
-            logger.info(f"[Step 1/4] 开始语音克隆")
+            logger.info("[Step 1/4] 开始语音克隆")
 
             try:
                 result_step1 = run_voice_cloning(
@@ -131,7 +140,7 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
                 raise
 
         # GPU密集型任务完成，释放GPU资源
-        logger.info(f"🔓 已释放 GPU 资源")
+        logger.info("🔓 已释放 GPU 资源")
 
         # ================================================================
         # Step 2: Trim Silence (去除静音)
@@ -142,7 +151,7 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
             current_step=2,
         )
 
-        logger.info(f"[Step 2/4] 开始去除静音")
+        logger.info("[Step 2/4] 开始去除静音")
 
         try:
             result_step2 = run_trim_silence(
@@ -183,7 +192,7 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
             current_step=3,
         )
 
-        logger.info(f"[Step 3/4] 开始构建序列")
+        logger.info("[Step 3/4] 开始构建序列")
 
         try:
             # 音频文件夹列表：旁白 + 对白（如果提供）
@@ -239,7 +248,7 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
             current_step=4,
         )
 
-        logger.info(f"[Step 4/4] 开始对齐合成")
+        logger.info("[Step 4/4] 开始对齐合成")
 
         try:
             # 构建音频文件夹列表：包含旁白和对白两个文件夹
@@ -290,6 +299,7 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
         final_result = {
             "task_dir": str(task_dir),
             "output_wav": str(final_output),
+            "output_url": _build_output_url(),
             "step1_voice_cloning": result_step1,
             "step2_trim_silence": result_step2,
             "step3_build_sequence": result_step3,
@@ -322,6 +332,7 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
             current_step=4,
             result=final_result,
             output_wav=str(final_output),
+            output_url=_build_output_url(),
         )
 
         logger.info(f"🎉 任务完成: {task_id}")

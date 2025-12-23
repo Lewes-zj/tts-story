@@ -87,6 +87,7 @@ class TaskStatusResponse(BaseModel):
     # 最终结果
     result: Optional[Dict[str, Any]] = Field(None, description="最终结果")
     output_wav: Optional[str] = Field(None, description="最终输出音频文件路径")
+    output_url: Optional[str] = Field(None, description="最终输出音频可访问URL")
 
     # 时间信息
     created_at: datetime = Field(..., description="创建时间")

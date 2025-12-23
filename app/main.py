@@ -7,6 +7,7 @@ FastAPI 主应用
 - GET /api/tasks - 列出所有任务
 """
 
+import os
 import uuid
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,7 @@ from typing import List
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.models import (
     GenerateAudioRequest,
@@ -53,6 +55,9 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# 对外基础地址（用于生成可访问的音频URL），可通过环境变量覆盖
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+
 # CORS 配置 (允许跨域请求)
 app.add_middleware(
     CORSMiddleware,
@@ -64,6 +69,13 @@ app.add_middleware(
 
 # 线程池执行器 (用于后台任务)
 executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="audio_pipeline_")
+
+# 静态资源挂载：暴露生成任务输出目录，供前端播放音频
+app.mount(
+    "/media",
+    StaticFiles(directory="data/tasks", check_dir=False),
+    name="media",
+)
 
 # ============================================================================
 # API 端点

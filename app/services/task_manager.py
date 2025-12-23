@@ -123,6 +123,7 @@ class TaskManager:
                 "steps": [],
                 "result": None,
                 "output_wav": None,
+                "output_url": None,
                 "error": None,
                 "created_at": now.isoformat(),
                 "updated_at": now.isoformat(),
@@ -143,6 +144,7 @@ class TaskManager:
         current_step: Optional[int] = None,
         result: Optional[dict] = None,
         output_wav: Optional[str] = None,
+        output_url: Optional[str] = None,
         error: Optional[str] = None,
     ):
         """
@@ -175,6 +177,8 @@ class TaskManager:
                 task["result"] = result
             if output_wav is not None:
                 task["output_wav"] = output_wav
+            if output_url is not None:
+                task["output_url"] = output_url
             if error is not None:
                 task["error"] = error
 
