@@ -30,6 +30,7 @@ from scripts.auto_voice_cloner import run_voice_cloning
 from scripts.trim_silence_tool import run_trim_silence
 from scripts.build_story_sequence import run_build_sequence
 from scripts.align import run_alignment
+from scripts.user_story_book_dao import UserStoryBookDAO
 
 from app.services.task_manager import task_manager
 from app.models import TaskStatus
@@ -284,6 +285,25 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
             "step3_build_sequence": result_step3,
             "step4_alignment": result_step4,
         }
+
+        # 将生成的音频路径写入用户故事书表，便于后续访问
+        user_id = params.get("user_id")
+        role_id = params.get("role_id")
+        story_id = params.get("story_id")
+        if user_id is not None and role_id is not None and story_id is not None:
+            try:
+                dao = UserStoryBookDAO()
+                dao.insert(
+                    user_id=user_id,
+                    role_id=role_id,
+                    story_id=story_id,
+                    story_book_path=str(final_output),
+                )
+                logger.info("✅ 已将生成的音频路径写入 user_story_books")
+            except Exception as dao_error:
+                logger.error(f"❌ 写入用户故事书失败: {dao_error}")
+        else:
+            logger.info("ℹ️ 未提供 user_id/role_id/story_id，跳过故事书入库")
 
         task_manager.update_task(
             task_id=task_id,

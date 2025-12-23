@@ -170,6 +170,10 @@ class BusinessGenerateService:
             "bgm_path": config["bgm_path"],
             "dialogue_audio_folder": config.get("dialogue_audio_folder", ""),
             "task_name": task_name or config.get("task_name", f"故事{story_id}生成"),
+            # 传递上下文信息，便于后续持久化入库
+            "story_id": story_id,
+            "user_id": user_id,
+            "role_id": role_id,
         }
 
         logger.info(f"生成参数准备完成: {params}")
