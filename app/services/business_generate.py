@@ -74,7 +74,7 @@ class BusinessGenerateService:
             role_id: 角色ID
 
         Returns:
-            音频文件路径 (output_path字段)
+            音频文件路径 (clean_input字段)
 
         Raises:
             ImportError: 无法导入DAO
@@ -88,25 +88,26 @@ class BusinessGenerateService:
             if scripts_path not in sys.path:
                 sys.path.insert(0, scripts_path)
 
-            from scripts.user_emo_audio_dao import UserEmoAudioDAO
+            from scripts.user_input_audio_dao import UserInputAudioDAO
 
-            logger.info(f"查询用户音频: user_id={user_id}, role_id={role_id}")
-            dao = UserEmoAudioDAO()
-            records = dao.query_by_user_role(user_id, role_id)
+            logger.info(f"查询用户输入音频: user_id={user_id}, role_id={role_id}")
+            dao = UserInputAudioDAO()
+            record = dao.find_by_user_and_role(user_id, role_id)
 
-            if not records or len(records) == 0:
+            if not record:
                 error_msg = "请先生成您的克隆声音"
-                logger.error(f"用户音频记录为空: user_id={user_id}, role_id={role_id}")
+                logger.error(
+                    f"用户输入音频记录为空: user_id={user_id}, role_id={role_id}"
+                )
                 raise ValueError(error_msg)
 
-            # 获取第一条记录的output_path字段
-            first_record = records[0]
-            audio_path = first_record.get("output_path")
+            # 优先使用clean_input，如果不存在则使用init_input
+            audio_path = record.get("clean_input") or record.get("init_input")
 
             if not audio_path:
                 error_msg = "音频文件路径不存在，请重新生成克隆声音"
                 logger.error(
-                    f"output_path字段为空: user_id={user_id}, role_id={role_id}"
+                    f"clean_input和init_input字段均为空: user_id={user_id}, role_id={role_id}"
                 )
                 raise ValueError(error_msg)
 
