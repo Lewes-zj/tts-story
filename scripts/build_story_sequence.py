@@ -268,6 +268,84 @@ def save_output(seq, path):
 
 
 # =======================================================
+# API 调用函数 (用于 FastAPI 集成)
+# =======================================================
+
+
+def run_build_sequence(
+    source_audio: str,
+    script_json: str,
+    audio_folders: list,
+    output_json: str = "final_config.json",
+) -> dict:
+    """
+    构建故事序列配置文件 (用于API调用)
+
+    Args:
+        source_audio (str): 源音频文件路径
+        script_json (str): 脚本JSON文件路径
+        audio_folders (list): 音频文件夹列表
+        output_json (str): 输出配置文件路径
+
+    Returns:
+        dict: 处理结果
+            - source_audio: 源音频路径
+            - output_json: 输出配置文件路径
+            - total_clips: 总片段数
+            - matched_clips: 匹配成功的片段数
+            - unmatched_clips: 未匹配的片段数
+
+    Raises:
+        FileNotFoundError: 当必需文件不存在时
+        ValueError: 当参数无效时
+    """
+    if not os.path.exists(source_audio):
+        raise FileNotFoundError(f"源音频文件不存在: {source_audio}")
+
+    if not os.path.exists(script_json):
+        raise FileNotFoundError(f"脚本JSON文件不存在: {script_json}")
+
+    print("=" * 50)
+    print("ABEA V5.1 - 脚本驱动通用版")
+    print("=" * 50)
+
+    # 1. 加载脚本 (真理来源)
+    script = load_script_file(script_json)
+
+    # 2. 扫描所有文件夹 (获取物理文件)
+    audio_map = scan_audio_directories(audio_folders)
+
+    # 3. 合并
+    sequence = merge_data(script, audio_map)
+    sequence.sort(key=lambda x: x["seq_id"])
+
+    if not sequence:
+        raise ValueError("未找到有效数据")
+
+    total_clips = len(sequence)
+    print(f"准备处理 {total_clips} 个片段...")
+
+    # 4. 识别与修正
+    sequence = match_whisper_v3(source_audio, sequence)
+    sequence = expand_boundaries(sequence)
+
+    # 5. 统计匹配结果
+    matched_clips = sum(1 for x in sequence if x.get("match", 0) > 0.35)
+    unmatched_clips = total_clips - matched_clips
+
+    # 6. 输出
+    save_output(sequence, output_json)
+
+    return {
+        "source_audio": source_audio,
+        "output_json": output_json,
+        "total_clips": total_clips,
+        "matched_clips": matched_clips,
+        "unmatched_clips": unmatched_clips,
+    }
+
+
+# =======================================================
 # 主入口
 # =======================================================
 

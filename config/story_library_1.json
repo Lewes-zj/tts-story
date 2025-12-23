@@ -1,0 +1,8 @@
+{
+  "json_db": "/path/to/dialogue_tasks.json",
+  "emo_audio_folder": "/path/to/emotion_audios",
+  "source_audio": "/path/to/original_audio.wav",
+  "script_json": "/path/to/script.json",
+  "bgm_path": "/path/to/background_music.wav",
+  "task_name": "第一集生成"
+}

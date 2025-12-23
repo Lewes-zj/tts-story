@@ -1,0 +1,15 @@
+# FastAPI Backend Dependencies
+# 安装命令: pip install -r requirements-api.txt
+
+# FastAPI 框架
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# 数据验证
+pydantic==2.5.0
+
+# 文件上传支持
+python-multipart==0.0.6
+
+# 注意：这些依赖是FastAPI后端所需的，不包括音频处理相关依赖
+# 音频处理依赖应该已经在主 requirements.txt 中定义

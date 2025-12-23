@@ -1,0 +1,12 @@
+[
+  {
+    "id": "1",
+    "story_name": "福尔摩斯001",
+    "duration": 250,
+    "cover_url": "",
+    "narration_json": "tts-story/db/sherlock_holmes_narration_01.json",
+    "script_json": "tts-story/db/sherlock_holmes_01.json",
+    "narration_audio": "",
+    "dialogue_audio": ""
+  }
+]

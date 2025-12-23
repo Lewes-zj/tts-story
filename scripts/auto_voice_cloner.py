@@ -434,6 +434,64 @@ class AutoVoiceCloner:
 
 
 # ============================================================================
+# API 调用函数 (用于 FastAPI 集成)
+# ============================================================================
+
+
+def run_voice_cloning(
+    input_wav: str,
+    json_db: str,
+    output_dir: str,
+    emo_audio_folder: str = None,
+) -> Dict:
+    """
+    执行批量语音克隆任务 (用于API调用)
+
+    Args:
+        input_wav (str): 音色参考音频路径
+        json_db (str): JSON配置文件路径（包含任务列表）
+        output_dir (str): 输出目录路径
+        emo_audio_folder (str, optional): 情感音频文件夹路径
+
+    Returns:
+        Dict: 执行结果
+            - mode: "batch"
+            - output_dir: 输出目录路径
+            - output_files: 生成的音频文件路径列表
+            - total: 总任务数
+            - success: 成功数量
+            - failed: 失败数量
+            - results: 详细结果列表
+
+    Raises:
+        FileNotFoundError: 当输入文件不存在时
+        ValueError: 当参数无效时
+    """
+    # 初始化克隆器
+    cloner = AutoVoiceCloner(output_dir=output_dir)
+
+    # 执行批量克隆
+    result = cloner.run_cloning(
+        input_audio=input_wav,
+        batch_json_path=json_db,
+        emo_audio_folder=emo_audio_folder,
+    )
+
+    # 提取所有成功生成的文件路径
+    output_files = [
+        item["output_path"]
+        for item in result.get("results", [])
+        if item.get("success") and item.get("output_path")
+    ]
+
+    # 增强返回值，添加output_dir和output_files
+    result["output_dir"] = str(output_dir)
+    result["output_files"] = output_files
+
+    return result
+
+
+# ============================================================================
 # 使用示例
 # ============================================================================
 

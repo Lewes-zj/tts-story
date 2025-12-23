@@ -212,6 +212,81 @@ def render_output(clips: List[AudioClip], bgm_path: str, output_path: str) -> No
     logger.info(f"✅ 输出成功: {output_path}")
 
 
+# ============================================================================
+# API 调用函数 (用于 FastAPI 集成)
+# ============================================================================
+
+
+def run_alignment(
+    config_json: str,
+    audio_folders: List[str],
+    bgm_path: str,
+    output_wav: str = "output_aligned.wav",
+) -> dict:
+    """
+    执行音频对齐与合成 (用于API调用)
+
+    Args:
+        config_json (str): 配置文件路径 (包含时间轴信息)
+        audio_folders (List[str]): 音频文件夹列表
+        bgm_path (str): BGM源音频路径
+        output_wav (str): 输出文件路径
+
+    Returns:
+        dict: 处理结果
+            - config_json: 配置文件路径
+            - output_wav: 输出音频文件路径
+            - total_clips: 总片段数
+            - loaded_clips: 成功加载的片段数
+            - missing_clips: 缺失的片段数
+            - total_duration_seconds: 总时长(秒)
+
+    Raises:
+        FileNotFoundError: 当必需文件不存在时
+        ValueError: 当缺少音频文件时
+    """
+    if not os.path.exists(config_json):
+        raise FileNotFoundError(f"配置文件不存在: {config_json}")
+
+    if not os.path.exists(bgm_path):
+        raise FileNotFoundError(f"BGM文件不存在: {bgm_path}")
+
+    if not audio_folders:
+        raise ValueError("❌ 错误: 请提供音频文件夹")
+
+    # 加载配置
+    clips = load_config(config_json)
+    total_clips = len(clips)
+
+    # 加载音频
+    if not load_and_prep_audio(clips, audio_folders):
+        missing_count = sum(1 for c in clips if c.audio is None)
+        raise ValueError(f"缺失 {missing_count} 个音频文件，无法继续")
+
+    # 统计加载情况
+    loaded_clips = sum(1 for c in clips if c.audio is not None)
+    missing_clips = total_clips - loaded_clips
+
+    # 渲染输出
+    render_output(clips, bgm_path, output_wav)
+
+    # 计算总时长
+    bgm = AudioSegment.from_file(bgm_path)
+    last_voice_end = max(
+        (c.target_start * 1000 + len(c.audio)) for c in clips if c.audio
+    )
+    total_duration_ms = max(len(bgm), last_voice_end + 1000)
+
+    return {
+        "config_json": config_json,
+        "output_wav": output_wav,
+        "total_clips": total_clips,
+        "loaded_clips": loaded_clips,
+        "missing_clips": missing_clips,
+        "total_duration_seconds": round(total_duration_ms / 1000.0, 2),
+    }
+
+
 def main():
     import argparse
 

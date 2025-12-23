@@ -128,6 +128,105 @@ def process_folder(input_dir, output_dir, thresh=-40, chunk=10):
     logger.info(f"📉 总共减去了 {total_saved_time:.2f} 秒的静音")
 
 
+# ============================================================================
+# API 调用函数 (用于 FastAPI 集成)
+# ============================================================================
+
+
+def run_trim_silence(
+    input_dir: str, output_dir: str, silence_thresh: int = -40
+) -> dict:
+    """
+    批量去除音频静音 (用于API调用)
+
+    Args:
+        input_dir (str): 输入音频文件夹路径
+        output_dir (str): 输出音频文件夹路径
+        silence_thresh (int): 静音阈值 (dBFS), 默认 -40
+
+    Returns:
+        dict: 处理结果
+            - input_dir: 输入目录路径
+            - output_dir: 输出目录路径
+            - total_files: 总文件数
+            - success_count: 成功处理数量
+            - failed_count: 失败数量
+            - total_saved_time: 总共去除的静音时长(秒)
+
+    Raises:
+        FileNotFoundError: 当输入目录不存在时
+    """
+    if not os.path.exists(input_dir):
+        raise FileNotFoundError(f"输入文件夹不存在: {input_dir}")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 支持的格式
+    extensions = (".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac")
+    files = [f for f in os.listdir(input_dir) if f.lower().endswith(extensions)]
+    total_files = len(files)
+
+    if total_files == 0:
+        logger.warning(f"⚠️  在 {input_dir} 中未找到音频文件")
+        return {
+            "input_dir": input_dir,
+            "output_dir": output_dir,
+            "total_files": 0,
+            "success_count": 0,
+            "failed_count": 0,
+            "total_saved_time": 0.0,
+        }
+
+    logger.info(f"📂 正在处理: {input_dir}")
+    logger.info(f"   目标: {output_dir}")
+    logger.info(f"   文件数: {total_files}")
+    logger.info("-" * 40)
+
+    success_count = 0
+    failed_count = 0
+    total_saved_time = 0.0
+
+    for filename in tqdm(files, unit="file"):
+        input_path = os.path.join(input_dir, filename)
+        output_path = os.path.join(output_dir, filename)
+
+        try:
+            # 加载音频
+            audio = AudioSegment.from_file(input_path)
+
+            # 去除静音
+            trimmed_audio, saved_time = trim_silence(
+                audio, silence_thresh=silence_thresh, chunk_size=10
+            )
+
+            # 导出 (保持原格式)
+            fmt = os.path.splitext(filename)[1][1:].lower()
+            if fmt == "m4a":
+                fmt = "ipod"  # pydub specific
+
+            trimmed_audio.export(output_path, format=fmt)
+
+            success_count += 1
+            total_saved_time += saved_time
+
+        except Exception as e:
+            logger.error(f"❌ 处理失败 {filename}: {e}")
+            failed_count += 1
+
+    logger.info("-" * 40)
+    logger.info(f"🎉 完成! 成功处理: {success_count}/{total_files}")
+    logger.info(f"📉 总共减去了 {total_saved_time:.2f} 秒的静音")
+
+    return {
+        "input_dir": input_dir,
+        "output_dir": output_dir,
+        "total_files": total_files,
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "total_saved_time": round(total_saved_time, 2),
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="批量音频去静音工具")
     parser.add_argument("-i", "--input", required=True, help="输入音频文件夹")
