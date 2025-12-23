@@ -1,8 +1,8 @@
 {
-  "json_db": "/path/to/dialogue_tasks.json",
-  "emo_audio_folder": "/path/to/emotion_audios",
-  "source_audio": "/path/to/original_audio.wav",
-  "script_json": "/path/to/script.json",
-  "bgm_path": "/path/to/background_music.wav",
-  "task_name": "第一集生成"
+  "json_db": "/root/autodl-tmp/tts-story/db/sherlock_holmes_narration_01.json",
+  "emo_audio_folder": "/root/autodl-tmp/uploads/sherlock_holmes_01/narration2",
+  "source_audio": "/root/autodl-tmp/uploads/sherlock_holmes_01/pure_vocals.mp3",
+  "script_json": "/root/autodl-tmp/tts-story/db/sherlock_holmes_01.json",
+  "bgm_path": "/root/autodl-tmp/uploads/sherlock_holmes_01/BGM.mp3",
+  "task_name": "sherlockHolmes01CreateTask"
 }

@@ -131,6 +131,31 @@ except Exception as e:
     print(f"错误详情: {str(e)}")
     traceback.print_exc()
 
+# 添加音频生成API路由
+try:
+    from scripts.audio_generation_api import router as audio_generation_router
+
+    app.include_router(audio_generation_router)
+    print("✓ 音频生成API路由已成功注册")
+    print("  - 音频生成API (基于路径): POST /api/generate")
+    print("  - 音频生成API (基于ID): POST /api/generate_by_ids")
+    print("  - 任务状态查询: GET /api/task/{task_id}")
+    print("  - 任务列表: GET /api/tasks")
+    print("  - 删除任务: DELETE /api/task/{task_id}")
+
+except ImportError as e:
+    import traceback
+
+    print(f"✗ 警告: 无法导入音频生成API路由，音频生成功能将不可用")
+    print(f"错误详情: {str(e)}")
+    traceback.print_exc()
+except Exception as e:
+    import traceback
+
+    print(f"✗ 错误: 注册音频生成API路由时发生异常")
+    print(f"错误详情: {str(e)}")
+    traceback.print_exc()
+
 
 @app.get("/", summary="API根路径")
 async def root():
