@@ -285,8 +285,14 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
     except Exception as e:
         # 任务失败
         error_message = f"任务执行失败: {str(e)}"
-        logger.error(f"❌ {error_message}")
 
+        # 详细记录错误信息到日志
+        logger.error(f"❌ 任务失败: {task_id}")
+        logger.error(f"   错误类型: {type(e).__name__}")
+        logger.error(f"   错误信息: {error_message}")
+        logger.error(f"   任务参数: {params}")
+
+        # 更新任务状态为失败（短暂保留以便日志记录）
         task_manager.update_task(
             task_id=task_id,
             status=TaskStatus.FAILED,
@@ -294,5 +300,10 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
             error=error_message,
         )
 
-        # 重新抛出异常 (可选，取决于是否需要上层处理)
-        # raise
+        # 自动删除失败的任务
+        try:
+            logger.info(f"🗑️ 自动删除失败任务: {task_id}")
+            task_manager.delete_task(task_id)
+            logger.info(f"✅ 失败任务已删除: {task_id}")
+        except Exception as delete_error:
+            logger.error(f"⚠️ 删除失败任务时出错: {str(delete_error)}")
