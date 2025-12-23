@@ -101,13 +101,13 @@ class BusinessGenerateService:
                 )
                 raise ValueError(error_msg)
 
-            # 优先使用clean_input，如果不存在则使用init_input
-            audio_path = record.get("clean_input") or record.get("init_input")
+            # 仅使用clean_input字段
+            audio_path = record.get("clean_input")
 
             if not audio_path:
                 error_msg = "音频文件路径不存在，请重新生成克隆声音"
                 logger.error(
-                    f"clean_input和init_input字段均为空: user_id={user_id}, role_id={role_id}"
+                    f"clean_input字段为空: user_id={user_id}, role_id={role_id}"
                 )
                 raise ValueError(error_msg)
 
