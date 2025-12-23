@@ -230,6 +230,21 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
         logger.info(f"[Step 4/4] 开始对齐合成")
 
         try:
+            # 构建音频文件夹列表：包含旁白和对白两个文件夹
+            audio_folders = [str(trimmed_dir)]  # 旁白音频文件夹
+            
+            # 如果配置中提供了对话音频文件夹，添加到列表中
+            dialogue_audio_folder = params.get("dialogue_audio_folder", "")
+            if dialogue_audio_folder:
+                import os
+                if os.path.exists(dialogue_audio_folder):
+                    audio_folders.append(dialogue_audio_folder)  # 对白音频文件夹
+                    logger.info(f"✅ 已添加对白音频文件夹: {dialogue_audio_folder}")
+                else:
+                    logger.warning(f"⚠️ 对白音频文件夹不存在: {dialogue_audio_folder}")
+            else:
+                logger.warning("⚠️ 未配置对白音频文件夹，将只使用旁白音频")
+
             result_step4 = run_alignment(
                 config_json=str(sequence_json),
                 audio_folders=audio_folders,

@@ -168,6 +168,7 @@ class BusinessGenerateService:
             "source_audio": config.get("source_audio", ""),
             "script_json": config["script_json"],
             "bgm_path": config["bgm_path"],
+            "dialogue_audio_folder": config.get("dialogue_audio_folder", ""),
             "task_name": task_name or config.get("task_name", f"故事{story_id}生成"),
         }
 

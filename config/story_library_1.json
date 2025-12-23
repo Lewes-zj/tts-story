@@ -4,5 +4,6 @@
   "source_audio": "/root/autodl-tmp/uploads/sherlock_holmes_01/pure_vocals.mp3",
   "script_json": "/root/autodl-tmp/tts-story/db/sherlock_holmes_01.json",
   "bgm_path": "/root/autodl-tmp/uploads/sherlock_holmes_01/BGM.mp3",
+  "dialogue_audio_folder":"/root/autodl-tmp/uploads/sherlock_holmes_01/dialogue",
   "task_name": "sherlockHolmes01CreateTask"
 }

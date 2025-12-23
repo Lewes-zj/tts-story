@@ -147,3 +147,4 @@ mcp.json
 node-v*.pkg
 nodejs.pkg
 outputs/
+data/
