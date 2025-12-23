@@ -20,10 +20,92 @@ if PROJECT_ROOT not in sys.path:
     print(f"[Info] 已将 {PROJECT_ROOT} 添加到 sys.path")  # (这行可以取消注释来调试)
 
 
+def verify_index_tts2_loading():
+    """验证 index-tts2 是否成功加载（使用 tts_utils）"""
+    print("\n" + "=" * 60)
+    print("验证 index-tts2 加载状态")
+    print("=" * 60)
+
+    # 1. 检查 index-tts 路径是否存在
+    print(f"\n[1/3] 检查 index-tts 路径: {PROJECT_ROOT}")
+    if os.path.exists(PROJECT_ROOT):
+        print("  ✅ 路径存在")
+    else:
+        print("  ❌ 路径不存在！")
+        print("  请确认服务器上 index-tts 的安装路径")
+        return False
+
+    # 2. 检查路径是否在 sys.path 中
+    print(f"\n[2/3] 检查 sys.path")
+    if PROJECT_ROOT in sys.path:
+        print(f"  ✅ {PROJECT_ROOT} 已在 sys.path 中")
+    else:
+        print(f"  ⚠️ {PROJECT_ROOT} 不在 sys.path 中，但已通过代码添加")
+
+    print("\n  当前 sys.path 前5个路径:")
+    for i, path in enumerate(sys.path[:5], 1):
+        print(f"    {i}. {path}")
+    if len(sys.path) > 5:
+        print(f"    ... (还有 {len(sys.path) - 5} 个路径)")
+
+    # 3. 使用 tts_utils 验证导入
+    print("\n[3/3] 使用 tts_utils 验证 IndexTTS2 导入")
+    try:
+        # 获取项目根目录并添加到路径
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+
+        # 导入 tts_utils
+        from scripts.tts_utils import TTS_AVAILABLE, IndexTTS2
+
+        if TTS_AVAILABLE and IndexTTS2 is not None:
+            print("  ✅ tts_utils 成功加载 IndexTTS2")
+            print(f"  TTS_AVAILABLE = {TTS_AVAILABLE}")
+            print(f"  IndexTTS2 类型: {type(IndexTTS2)}")
+
+            # 尝试获取 indextts 模块的位置
+            try:
+                import indextts
+
+                print(
+                    f"  indextts 位置: {indextts.__file__ if hasattr(indextts, '__file__') else '未知'}"
+                )
+            except:
+                pass
+
+            print("\n" + "=" * 60)
+            print("✅ index-tts2 加载验证成功！")
+            print("=" * 60 + "\n")
+            return True
+        else:
+            print("  ❌ tts_utils 未能成功加载 IndexTTS2")
+            print(f"  TTS_AVAILABLE = {TTS_AVAILABLE}")
+            print(f"  IndexTTS2 = {IndexTTS2}")
+            print("\n  可能的原因:")
+            print("    1. indextts 包未安装或路径不正确")
+            print("    2. 缺少必要的依赖")
+            print("    3. Python 环境不匹配")
+            print(f"\n  请检查 {PROJECT_ROOT} 目录是否包含 indextts 包")
+            return False
+
+    except ImportError as e:
+        print(f"  ❌ 无法导入 tts_utils: {e}")
+        print("  这可能表示项目结构有问题")
+        return False
+    except Exception as e:
+        print(f"  ❌ 验证过程中发生错误: {type(e).__name__}: {e}")
+        import traceback
+
+        print("\n  详细错误信息:")
+        traceback.print_exc()
+        return False
+
+
 def check_and_install_dependencies():
     """检查并安装项目依赖"""
     print("检查项目依赖...")
-    
+
     # 检查是否可以导入所需的模块
     required_modules = [
         ("fastapi", "fastapi>=0.68.0"),
@@ -33,28 +115,28 @@ def check_and_install_dependencies():
         ("yaml", "PyYAML>=6.0"),
         ("requests", "requests>=2.28.1"),
         ("multipart", "python-multipart>=0.0.5"),
-        ("pydub", "pydub>=0.25.1")
+        ("pydub", "pydub>=0.25.1"),
     ]
-    
+
     missing_modules = []
     for module_name, install_name in required_modules:
         try:
             importlib.util.find_spec(module_name)
         except ImportError:
             missing_modules.append((module_name, install_name))
-    
+
     # 如果有缺失的模块，尝试安装它们
     if missing_modules:
         print("检测到缺失的依赖，正在自动安装...")
         try:
             import subprocess
             import sys
-            
+
             # 构建安装命令
             install_cmd = [sys.executable, "-m", "pip", "install"]
             for _, install_name in missing_modules:
                 install_cmd.append(install_name)
-            
+
             # 执行安装
             result = subprocess.run(install_cmd, capture_output=True, text=True)
             if result.returncode == 0:
@@ -67,10 +149,14 @@ def check_and_install_dependencies():
                         print(f"警告: {module_name} 仍然无法导入")
             else:
                 print(f"依赖安装失败: {result.stderr}")
-                print("请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub")
+                print(
+                    "请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub"
+                )
         except Exception as e:
             print(f"安装依赖时出错: {e}")
-            print("请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub")
+            print(
+                "请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub"
+            )
     else:
         print("所有依赖已安装")
 
@@ -99,7 +185,15 @@ def start_services(daemon=False):
 
         # 使用 uv 运行服务
         main_api_process = subprocess.Popen(
-            ["python3.10", "scripts/main_api.py", "--host", "0.0.0.0", "--port", "8000", "scripts/main_api.py"],
+            [
+                "python3.10",
+                "scripts/main_api.py",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8000",
+                "scripts/main_api.py",
+            ],
             cwd=project_root,
             stdout=open(log_file, "w"),
             stderr=subprocess.STDOUT,
@@ -119,7 +213,16 @@ def start_services(daemon=False):
         try:
             # 尝试使用 uv 运行
             main_api_process = subprocess.Popen(
-                ["python3.10", "scripts/main_api.py", "--host", "0.0.0.0", "--port", "8000", "scripts/main_api.py"], cwd=project_root
+                [
+                    "python3.10",
+                    "scripts/main_api.py",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    "8000",
+                    "scripts/main_api.py",
+                ],
+                cwd=project_root,
             )
         except FileNotFoundError:
             # 如果没有 uv，使用传统的 Python 方式
@@ -167,5 +270,23 @@ if __name__ == "__main__":
 
     # 检查并安装依赖
     check_and_install_dependencies()
-    
+
+    # 验证 index-tts2 加载
+    if not verify_index_tts2_loading():
+        print("\n❌ index-tts2 加载验证失败！")
+        print("请检查以下事项:")
+        print(f"  1. 确认 index-tts 已安装在: {PROJECT_ROOT}")
+        print(f"  2. 确认路径配置正确")
+        print(f"  3. 确认 Python 环境正确")
+        print("\n是否继续启动服务？(y/n): ", end="")
+
+        # 在守护进程模式下自动继续
+        if args.daemon:
+            print("守护进程模式，自动继续...")
+        else:
+            user_input = input().strip().lower()
+            if user_input != "y":
+                print("已取消启动")
+                sys.exit(1)
+
     start_services(daemon=args.daemon)

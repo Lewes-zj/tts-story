@@ -90,5 +90,28 @@
     "created_at": "2025-12-23T12:53:44.044140",
     "updated_at": "2025-12-23T12:53:44.057843",
     "completed_at": "2025-12-23T12:53:44.057851"
+  },
+  "74061462-5d11-4978-a0d6-b563b4200a1c": {
+    "task_id": "74061462-5d11-4978-a0d6-b563b4200a1c",
+    "task_name": "故事1生成",
+    "status": "failed",
+    "progress": "❌ 任务失败",
+    "current_step": 1,
+    "total_steps": 4,
+    "steps": [
+      {
+        "step_number": 1,
+        "step_name": "Voice Cloning",
+        "status": "failed",
+        "result": null,
+        "error": "TTS 功能不可用，请确保已正确安装 indextts 包\n安装方法：pip install indextts"
+      }
+    ],
+    "result": null,
+    "output_wav": null,
+    "error": "任务执行失败: TTS 功能不可用，请确保已正确安装 indextts 包\n安装方法：pip install indextts",
+    "created_at": "2025-12-23T13:04:23.845798",
+    "updated_at": "2025-12-23T13:04:23.854248",
+    "completed_at": "2025-12-23T13:04:23.854255"
   }
 }
