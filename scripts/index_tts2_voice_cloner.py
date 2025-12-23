@@ -1,7 +1,7 @@
 """
 Index-TTS2 声音克隆器 (Voice Cloner)
 
-提供统一的接口来调用 Index-TTS2 模型进行声音克隆，支持：
+提供统一的接口来调用 Index-TTS2 模型进行声音克隆，支持:
 1. 基于情感参考音频的声音克隆
 2. 基于情感向量的声音克隆
 3. 批量音频生成
@@ -11,10 +11,19 @@ Index-TTS2 声音克隆器 (Voice Cloner)
 """
 
 import os
+import sys
 import time
 import logging
 from typing import Optional, List, Dict, Union
 from dataclasses import dataclass, field
+
+# ============================================================================
+# 关键修复：在导入 tts_utils 之前，确保 index-tts 路径已添加到 sys.path
+# ============================================================================
+# 这样可以确保无论模块导入顺序如何，index-tts 都能被正确找到
+PROJECT_ROOT = "/root/autodl-tmp/index-tts"
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
 # 导入TTS工具函数
 from scripts.tts_utils import initialize_tts_model, TTS_AVAILABLE, IndexTTS2
