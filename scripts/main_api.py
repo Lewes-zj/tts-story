@@ -43,6 +43,11 @@ outputs_dir = os.path.join(project_root, "outputs")
 os.makedirs(outputs_dir, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=outputs_dir), name="outputs")
 
+# 挂载生成任务音频目录（与 app/main.py 一致），供前端直接访问
+tasks_dir = os.path.join(project_root, "data", "tasks")
+os.makedirs(tasks_dir, exist_ok=True)
+app.mount("/media", StaticFiles(directory=tasks_dir, check_dir=False), name="media")
+
 # 导入路由
 # 情绪向量处理API路由
 from scripts.emo_vector_api import router as emo_vector_router

@@ -317,9 +317,9 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
                     user_id=user_id,
                     role_id=role_id,
                     story_id=story_id,
-                    story_book_path=str(final_output),
+                    story_book_path=_build_output_url(),
                 )
-                logger.info("✅ 已将生成的音频路径写入 user_story_books")
+                logger.info("✅ 已将生成的音频可访问URL写入 user_story_books")
             except Exception as dao_error:
                 logger.error(f"❌ 写入用户故事书失败: {dao_error}")
         else:

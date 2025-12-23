@@ -29,12 +29,22 @@ class UserStoryBookDAO(BaseDAO):
         if story_book_path.startswith(("http://", "https://")):
             return story_book_path
 
+        # 将 data/tasks/{task_id}/4_final_output.wav 格式转换为 /media/{task_id}/4_final_output.wav
+        if story_book_path.startswith("data/tasks/"):
+            # 提取 task_id 和文件名
+            # data/tasks/{task_id}/4_final_output.wav -> /media/{task_id}/4_final_output.wav
+            parts = story_book_path.split("/")
+            if len(parts) >= 4 and parts[0] == "data" and parts[1] == "tasks":
+                task_id = parts[2]
+                filename = "/".join(parts[3:])  # 处理可能的子目录
+                story_book_path = f"/media/{task_id}/{filename}"
+
         # 如果配置了对外前缀，拼接生成可访问的URL
         if self._public_prefix:
             prefix = self._public_prefix if self._public_prefix.endswith("/") else f"{self._public_prefix}/"
             return urljoin(prefix, story_book_path.lstrip("/"))
 
-        # 兜底返回原值，避免因配置缺失导致插入失败
+        # 返回相对路径（/media/... 格式），前端可以通过代理访问
         return story_book_path
 
     def insert(self, user_id: int, role_id: int, story_id: int, story_book_path: str) -> int:
