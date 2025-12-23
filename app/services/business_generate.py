@@ -53,12 +53,28 @@ class BusinessGenerateService:
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # 验证必需的配置项
-        required_fields = ["json_db", "emo_audio_folder", "bgm_path", "script_json"]
+        # 验证必需的配置项（全部必填且不能为空）
+        required_fields = [
+            "json_db",
+            "emo_audio_folder",
+            "source_audio",
+            "script_json",
+            "bgm_path",
+            "dialogue_audio_folder",
+            "task_name",
+        ]
         missing_fields = [field for field in required_fields if field not in config]
+        empty_fields = [
+            field for field in required_fields if not config.get(field)
+        ]
 
-        if missing_fields:
-            error_msg = f"配置文件缺少必需字段: {', '.join(missing_fields)}"
+        if missing_fields or empty_fields:
+            details = []
+            if missing_fields:
+                details.append(f"缺少: {', '.join(missing_fields)}")
+            if empty_fields:
+                details.append(f"为空: {', '.join(empty_fields)}")
+            error_msg = f"配置文件缺少必需字段或字段为空 ({'; '.join(details)})"
             logger.error(error_msg)
             raise ValueError(error_msg)
 
@@ -165,11 +181,11 @@ class BusinessGenerateService:
             "input_wav": input_wav,
             "json_db": config["json_db"],
             "emo_audio_folder": config["emo_audio_folder"],
-            "source_audio": config.get("source_audio", ""),
+            "source_audio": config["source_audio"],
             "script_json": config["script_json"],
             "bgm_path": config["bgm_path"],
-            "dialogue_audio_folder": config.get("dialogue_audio_folder", ""),
-            "task_name": task_name or config.get("task_name", f"故事{story_id}生成"),
+            "dialogue_audio_folder": config["dialogue_audio_folder"],
+            "task_name": task_name or config["task_name"],
             # 传递上下文信息，便于后续持久化入库
             "story_id": story_id,
             "user_id": user_id,

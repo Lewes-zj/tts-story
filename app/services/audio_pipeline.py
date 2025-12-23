@@ -186,8 +186,19 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
         logger.info(f"[Step 3/4] 开始构建序列")
 
         try:
-            # 音频文件夹列表 (优先使用trimmed，如果不存在则使用cloned)
+            # 音频文件夹列表：旁白 + 对白（如果提供）
             audio_folders = [str(trimmed_dir)]
+            dialogue_audio_folder = params.get("dialogue_audio_folder", "")
+            if dialogue_audio_folder:
+                if os.path.exists(dialogue_audio_folder):
+                    audio_folders.append(dialogue_audio_folder)
+                    logger.info(f"✅ Step3 已添加对白音频文件夹: {dialogue_audio_folder}")
+                else:
+                    logger.warning(
+                        f"⚠️ Step3 对白音频文件夹不存在: {dialogue_audio_folder}"
+                    )
+            else:
+                logger.warning("⚠️ Step3 未配置对白音频文件夹，将只使用旁白音频")
 
             result_step3 = run_build_sequence(
                 source_audio=params["source_audio"],
@@ -237,7 +248,6 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
             # 如果配置中提供了对话音频文件夹，添加到列表中
             dialogue_audio_folder = params.get("dialogue_audio_folder", "")
             if dialogue_audio_folder:
-                import os
                 if os.path.exists(dialogue_audio_folder):
                     audio_folders.append(dialogue_audio_folder)  # 对白音频文件夹
                     logger.info(f"✅ 已添加对白音频文件夹: {dialogue_audio_folder}")
