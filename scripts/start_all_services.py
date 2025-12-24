@@ -116,6 +116,9 @@ def check_and_install_dependencies():
         ("requests", "requests>=2.28.1"),
         ("multipart", "python-multipart>=0.0.5"),
         ("pydub", "pydub>=0.25.1"),
+        ("torch", "torch>=1.13.0"),  # funasr的依赖
+        ("torchaudio", "torchaudio"),  # funasr的依赖
+        ("funasr", "funasr>=1.0.0"),  # ASR功能所需
     ]
 
     missing_modules = []
@@ -150,12 +153,12 @@ def check_and_install_dependencies():
             else:
                 print(f"依赖安装失败: {result.stderr}")
                 print(
-                    "请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub"
+                    "请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub funasr"
                 )
         except Exception as e:
             print(f"安装依赖时出错: {e}")
             print(
-                "请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub"
+                "请手动安装依赖: pip install fastapi uvicorn pydantic pymysql PyYAML requests python-multipart pydub funasr"
             )
     else:
         print("所有依赖已安装")

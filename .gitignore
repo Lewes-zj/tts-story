@@ -148,3 +148,6 @@ node-v*.pkg
 nodejs.pkg
 outputs/
 data/
+
+# Configuration files with sensitive information
+config/aliyun_asr.yaml

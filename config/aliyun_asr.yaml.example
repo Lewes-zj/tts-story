@@ -1,0 +1,14 @@
+# 阿里云ASR语音识别配置文件示例
+# 复制此文件为 aliyun_asr.yaml 并填入实际的密钥信息
+# 注意：aliyun_asr.yaml 文件包含敏感信息，不应提交到代码仓库
+
+aliyun_asr:
+  # 阿里云AccessKey ID
+  access_key_id: "your_access_key_id"
+  # 阿里云AccessKey Secret
+  access_key_secret: "your_access_key_secret"
+  # 阿里云ASR AppKey
+  app_key: "your_app_key"
+  # ASR服务端点（可选，默认使用上海区域）
+  endpoint: "https://nls-gateway.cn-shanghai.aliyuncs.com"
+

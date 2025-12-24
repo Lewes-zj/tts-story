@@ -21,6 +21,55 @@ if project_root not in current_pythonpath:
         f"{project_root}:{current_pythonpath}" if current_pythonpath else project_root
     )
 
+
+def check_dependencies():
+    """
+    检查项目启动所需的依赖是否已安装
+    在启动服务前调用，确保所有必要的依赖都已安装
+    """
+    import importlib.util
+    
+    # 定义需要检查的依赖模块
+    required_modules = [
+        ("fastapi", "fastapi>=0.68.0"),
+        ("uvicorn", "uvicorn>=0.15.0"),
+        ("pydantic", "pydantic>=1.8.0"),
+        ("torch", "torch>=1.13.0"),  # funasr的依赖
+        ("torchaudio", "torchaudio"),  # funasr的依赖
+        ("funasr", "funasr>=1.0.0"),  # ASR功能所需
+    ]
+    
+    missing_modules = []
+    for module_name, install_name in required_modules:
+        try:
+            spec = importlib.util.find_spec(module_name)
+            if spec is None:
+                missing_modules.append((module_name, install_name))
+        except (ImportError, ValueError):
+            missing_modules.append((module_name, install_name))
+    
+    if missing_modules:
+        print("\n" + "=" * 60)
+        print("❌ 检测到缺失的依赖模块！")
+        print("=" * 60)
+        for module_name, install_name in missing_modules:
+            print(f"  - {module_name} ({install_name})")
+        print("\n请先安装缺失的依赖:")
+        print("  pip install -r requirements.txt")
+        print("\n或者单独安装:")
+        install_cmds = " ".join([install_name for _, install_name in missing_modules])
+        print(f"  pip install {install_cmds}")
+        print("\n注意：如果缺少 torchaudio，可能需要先安装 torch:")
+        print("  pip install torch torchaudio")
+        print("=" * 60 + "\n")
+        raise ImportError(f"缺少必要的依赖模块: {', '.join([m[0] for m in missing_modules])}")
+    else:
+        print("✓ 所有必要的依赖已安装")
+
+
+# 在启动前检查依赖
+check_dependencies()
+
 # 创建主应用
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -108,6 +157,10 @@ try:
     from scripts.task_api import router as task_router
     from scripts.file_api import router as file_router
     from scripts.user_story_book_api import router as user_story_book_router
+    # ASR API暂时禁用（旧版阿里云ASR）
+    # from scripts.asr_api import router as asr_router
+    # ASR校验API（使用FunASR）
+    from scripts.asr_verify_api import router as asr_verify_router, initialize_model
 
     app.include_router(auth_router)
     app.include_router(character_router)
@@ -115,6 +168,8 @@ try:
     app.include_router(task_router)
     app.include_router(file_router)
     app.include_router(user_story_book_router)
+    # app.include_router(asr_router)
+    app.include_router(asr_verify_router)
     print("✓ 新的API路由已成功注册")
     print("  - 认证API: /api/auth")
     print("  - 角色管理API: /api/characters")
@@ -122,6 +177,8 @@ try:
     print("  - 任务管理API: /api/tasks")
     print("  - 文件管理API: /api/files")
     print("  - 用户有声故事书API: /api/user_story_books")
+    print("  - ASR语音识别校验API: /api/asr/verify")
+    # print("  - ASR语音识别API: /api/asr")
 
 except ImportError as e:
     import traceback
@@ -186,6 +243,19 @@ def print_routes():
             methods = ", ".join(route.methods) if route.methods else "GET"
             print(f"{methods:8} {route.path}")
     print("=" * 50 + "\n")
+
+
+# 初始化ASR模型（在服务启动时）
+try:
+    from scripts.asr_verify_api import initialize_model
+    print("正在初始化ASR校验模型（FunASR SenseVoiceSmall）...")
+    print("注意：模型首次加载可能需要几分钟时间，请耐心等待...")
+    initialize_model()
+except ImportError:
+    print("警告: ASR校验API不可用，跳过模型初始化")
+except Exception as e:
+    print(f"警告: ASR模型初始化失败: {str(e)}")
+    print("ASR校验功能将不可用，但其他API服务正常")
 
 
 # 如果直接运行此文件，则启动服务器
