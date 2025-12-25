@@ -18,7 +18,15 @@ from typing import Optional, List, Dict, Union
 from dataclasses import dataclass, field
 
 # ============================================================================
-# 关键修复：在导入 tts_utils 之前，确保 index-tts 路径已添加到 sys.path
+# 关键修复1：在导入任何可能使用 protobuf 的模块之前设置环境变量
+# ============================================================================
+# 修复 protobuf 兼容性问题
+# 如果环境变量未设置，使用纯 Python 实现（虽然较慢，但兼容性更好）
+if "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION" not in os.environ:
+    os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
+# ============================================================================
+# 关键修复2：在导入 tts_utils 之前，确保 index-tts 路径已添加到 sys.path
 # ============================================================================
 # 这样可以确保无论模块导入顺序如何，index-tts 都能被正确找到
 PROJECT_ROOT = "/root/autodl-tmp/index-tts"

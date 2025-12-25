@@ -1,6 +1,14 @@
 import sys
 import os
 
+# ============================================================================
+# 关键修复：必须在导入任何可能使用 protobuf 的模块之前设置环境变量
+# ============================================================================
+# 修复 protobuf 兼容性问题
+# 如果环境变量未设置，使用纯 Python 实现（虽然较慢，但兼容性更好）
+if "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION" not in os.environ:
+    os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 sys.path.append("/root/autodl-tmp/index-tts")
 
 """
@@ -35,13 +43,6 @@ def initialize_tts_model(cfg_path=None, model_dir=None):
     Returns:
         IndexTTS2: 初始化的TTS模型实例，如果初始化失败则返回None
     """
-    # 修复 protobuf 兼容性问题 - 必须在函数最开始设置，在任何其他操作之前
-    # 如果环境变量未设置，使用纯 Python 实现（虽然较慢，但兼容性更好）
-    if "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION" not in os.environ:
-        os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-        # 注意：环境变量设置后，protobuf 的行为可能不会立即改变
-        # 如果仍然出错，可能需要降级 protobuf 版本到 3.20.x 或更低
-    
     if not TTS_AVAILABLE:
         print("错误: TTS 功能不可用，请确保已正确安装 indextts 包")
         return None
