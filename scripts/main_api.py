@@ -260,6 +260,14 @@ except Exception as e:
 
 # 如果直接运行此文件，则启动服务器
 if __name__ == "__main__":
+    import argparse
+    
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="启动TTS统一API服务")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="服务器主机地址")
+    parser.add_argument("--port", type=int, default=8000, help="服务器端口")
+    args = parser.parse_args()
+    
     # 打印所有路由用于调试
     print_routes()
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=args.host, port=args.port)

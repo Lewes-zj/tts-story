@@ -186,7 +186,7 @@ def start_services(daemon=False):
         # 创建日志文件
         log_file = os.path.join(project_root, "app.log")
 
-        # 使用 uv 运行服务
+        # 使用 Python 运行服务
         main_api_process = subprocess.Popen(
             [
                 "python3.10",
@@ -195,7 +195,6 @@ def start_services(daemon=False):
                 "0.0.0.0",
                 "--port",
                 "8000",
-                "scripts/main_api.py",
             ],
             cwd=project_root,
             stdout=open(log_file, "w"),
@@ -211,10 +210,10 @@ def start_services(daemon=False):
         print("\n要停止服务，可以使用以下命令:")
         print(f"  kill {main_api_process.pid}")
     else:
-        # 使用 uv 启动统一API网关 (端口8000)
-        print("使用 uv 启动统一API网关...")
+        # 使用 Python 启动统一API网关 (端口8000)
+        print("启动统一API网关...")
         try:
-            # 尝试使用 uv 运行
+            # 直接运行 main_api.py
             main_api_process = subprocess.Popen(
                 [
                     "python3.10",
@@ -223,7 +222,6 @@ def start_services(daemon=False):
                     "0.0.0.0",
                     "--port",
                     "8000",
-                    "scripts/main_api.py",
                 ],
                 cwd=project_root,
             )
