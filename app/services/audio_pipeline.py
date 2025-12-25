@@ -356,10 +356,10 @@ def generate_audio_pipeline(task_id: str, params: Dict[str, Any]):
             error=error_message,
         )
 
-        # 自动删除失败的任务
+        # 延迟删除失败的任务（保留5分钟，让前端能够查询到失败状态）
         try:
-            logger.info(f"🗑️ 自动删除失败任务: {task_id}")
-            task_manager.delete_task(task_id)
-            logger.info(f"✅ 失败任务已删除: {task_id}")
+            logger.info(f"📅 已计划延迟删除失败任务: {task_id}（5分钟后）")
+            task_manager.schedule_delete_task(task_id, delay_seconds=300)
+            logger.info(f"✅ 失败任务将在5分钟后自动删除: {task_id}")
         except Exception as delete_error:
-            logger.error(f"⚠️ 删除失败任务时出错: {str(delete_error)}")
+            logger.error(f"⚠️ 计划删除失败任务时出错: {str(delete_error)}")

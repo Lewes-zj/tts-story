@@ -61,7 +61,7 @@ class TaskManager:
         logger.info("✅ TaskManager 初始化完成")
 
     def _load_from_file(self):
-        """从 tasks.json 加载历史任务"""
+        """从 tasks.json 加载历史任务，并清理过期任务"""
         if not self.persistence_file.exists():
             logger.info("📂 未找到历史任务文件，从空状态开始")
             return
@@ -71,6 +71,11 @@ class TaskManager:
                 data = json.load(f)
                 self.tasks = data
                 logger.info(f"✅ 已加载 {len(self.tasks)} 个历史任务")
+                
+                # 启动时清理过期的失败任务（启动时还没有其他线程，不需要锁）
+                cleaned_count = self._cleanup_expired_tasks(require_lock=False)
+                if cleaned_count > 0:
+                    logger.info(f"🧹 启动时清理了 {cleaned_count} 个过期任务")
         except Exception as e:
             logger.error(f"❌ 加载历史任务失败: {e}")
             self.tasks = {}
@@ -246,27 +251,88 @@ class TaskManager:
             # 持久化
             self._save_to_file()
 
+    def _cleanup_expired_tasks(self, require_lock: bool = True) -> int:
+        """
+        清理过期的失败任务（计划删除时间已过）
+        
+        注意: 如果 require_lock=True，方法内部会获取锁。如果调用者已经持有锁，应设置 require_lock=False
+
+        Args:
+            require_lock: 是否需要在方法内部获取锁，默认 True
+
+        Returns:
+            清理的任务数量
+        """
+        def _do_cleanup():
+            now = datetime.now()
+            expired_task_ids = []
+            
+            for task_id, task in self.tasks.items():
+                scheduled_delete_at = task.get("scheduled_delete_at")
+                if scheduled_delete_at:
+                    try:
+                        delete_time = datetime.fromisoformat(scheduled_delete_at)
+                        if delete_time <= now:
+                            expired_task_ids.append(task_id)
+                    except (ValueError, TypeError):
+                        # 如果时间格式错误，跳过
+                        continue
+            
+            # 删除过期任务
+            for task_id in expired_task_ids:
+                del self.tasks[task_id]
+            
+            if expired_task_ids:
+                self._save_to_file()
+            
+            return len(expired_task_ids)
+        
+        if require_lock:
+            with self._task_lock:
+                return _do_cleanup()
+        else:
+            # 调用者已经持有锁
+            return _do_cleanup()
+
     def get_task(self, task_id: str) -> Optional[dict]:
         """
-        获取任务信息
+        获取任务信息（自动清理过期任务）
 
         Args:
             task_id: 任务ID
 
         Returns:
-            任务对象，如果不存在返回 None
+            任务对象，如果不存在或已过期返回 None
         """
         with self._task_lock:
-            return self.tasks.get(task_id)
+            # 先清理过期任务（懒加载清理，已经持有锁）
+            self._cleanup_expired_tasks(require_lock=False)
+            
+            task = self.tasks.get(task_id)
+            
+            # 如果任务存在但已过期，返回 None
+            if task and task.get("scheduled_delete_at"):
+                try:
+                    delete_time = datetime.fromisoformat(task["scheduled_delete_at"])
+                    if delete_time <= datetime.now():
+                        del self.tasks[task_id]
+                        self._save_to_file()
+                        return None
+                except (ValueError, TypeError):
+                    pass
+            
+            return task
 
     def get_all_tasks(self) -> List[dict]:
         """
-        获取所有任务
+        获取所有任务（自动清理过期任务）
 
         Returns:
-            任务列表
+            任务列表（不包含过期任务）
         """
         with self._task_lock:
+            # 先清理过期任务（已经持有锁）
+            self._cleanup_expired_tasks(require_lock=False)
             return list(self.tasks.values())
 
     def delete_task(self, task_id: str):
@@ -281,6 +347,31 @@ class TaskManager:
                 del self.tasks[task_id]
                 self._save_to_file()
                 logger.info(f"🗑️  任务已删除: {task_id}")
+
+    def schedule_delete_task(self, task_id: str, delay_seconds: int = 300):
+        """
+        计划延迟删除任务（用于失败任务，保留一段时间供前端查询）
+        
+        使用基于时间戳的机制，即使服务器重启也能正确清理过期任务
+
+        Args:
+            task_id: 任务ID
+            delay_seconds: 延迟删除时间（秒），默认300秒（5分钟）
+        """
+        with self._task_lock:
+            if task_id not in self.tasks:
+                logger.warning(f"⚠️ 无法计划删除不存在的任务: {task_id}")
+                return
+            
+            # 计算计划删除时间
+            delete_time = datetime.now().timestamp() + delay_seconds
+            scheduled_delete_at = datetime.fromtimestamp(delete_time).isoformat()
+            
+            # 在任务中记录计划删除时间
+            self.tasks[task_id]["scheduled_delete_at"] = scheduled_delete_at
+            self._save_to_file()
+            
+            logger.info(f"📅 已计划在 {delay_seconds} 秒后删除任务: {task_id} (计划删除时间: {scheduled_delete_at})")
 
 
 # 全局单例实例

@@ -39,6 +39,11 @@ def initialize_tts_model(cfg_path=None, model_dir=None):
         print("错误: TTS 功能不可用，请确保已正确安装 indextts 包")
         return None
         
+    # 修复 protobuf 兼容性问题
+    # 如果环境变量未设置，使用纯 Python 实现（虽然较慢，但兼容性更好）
+    if "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION" not in os.environ:
+        os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+        
     # 使用默认路径，如果未提供参数
     if cfg_path is None:
         cfg_path = "/root/autodl-tmp/index-tts/checkpoints/config.yaml"
