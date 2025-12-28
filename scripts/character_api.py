@@ -8,6 +8,7 @@ import logging
 import shutil
 import time
 import stat
+import subprocess
 import requests
 from urllib.parse import urlparse  # 新增：用于解析URL
 from scripts.character_dao import CharacterDAO
@@ -68,31 +69,75 @@ def ensure_file_accessible(file_path: str, max_retries: int = 5, retry_delay: fl
                 except (OSError, PermissionError):
                     break
             
-            # 刷新文件系统缓存
-            try:
-                with open(file_path, 'rb') as f:
-                    f.read(1)
-                    try:
+            # 强制刷新文件系统和目录缓存
+            parent_dir = os.path.dirname(file_path)
+            
+            # 方法1: 多次访问文件，强制刷新inode缓存
+            for _ in range(3):
+                try:
+                    with open(file_path, 'rb') as f:
+                        f.read(1)
                         os.fsync(f.fileno())
-                    except (AttributeError, OSError):
-                        pass
+                except Exception:
+                    pass
+            
+            # 方法2: 列出目录内容，强制刷新目录dentry缓存
+            # 这是关键：os.listdir()会强制文件系统重新扫描目录
+            try:
+                if os.path.exists(parent_dir):
+                    os.listdir(parent_dir)  # 强制刷新目录缓存
+                    logger.debug(f"已刷新目录缓存: {parent_dir}")
+            except Exception as e:
+                logger.debug(f"刷新目录缓存失败: {str(e)}")
+            
+            # 方法3: 更新父目录mtime
+            try:
+                if os.path.exists(parent_dir):
+                    os.utime(parent_dir, None)
+                    logger.debug(f"已更新父目录mtime: {parent_dir}")
             except Exception:
                 pass
             
-            # 关键：更新父目录的修改时间，触发文件系统重新索引目录内容
-            # 这可以解决FastAPI StaticFiles无法立即识别新文件的问题
+            # 方法4: 使用stat系统调用多次访问文件，确保inode已更新
             try:
-                parent_dir = os.path.dirname(file_path)
-                if os.path.exists(parent_dir):
-                    # touch父目录，更新mtime
-                    os.utime(parent_dir, None)
-                    logger.debug(f"已更新父目录mtime: {parent_dir}")
-            except Exception as e:
-                logger.debug(f"更新父目录mtime失败: {str(e)}")
+                for _ in range(3):
+                    os.stat(file_path)
+            except Exception:
+                pass
             
-            # 强制同步文件系统（可选，但可能很慢）
+            # 方法5: 强制同步文件系统
             try:
-                os.sync()  # 强制同步所有挂起的写入
+                os.sync()
+            except Exception:
+                pass
+            
+            # 方法6: 使用系统命令强制刷新（最激进的方法）
+            # 通过subprocess调用sync命令，确保所有挂起的写入都已刷新到磁盘
+            try:
+                subprocess.run(['sync'], check=False, timeout=5, 
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                logger.debug("已执行系统sync命令")
+            except Exception:
+                pass
+            
+            # 方法7: 使用find命令访问文件，强制文件系统识别新文件
+            # 这可以触发文件系统的dentry缓存更新
+            try:
+                subprocess.run(['find', parent_dir, '-name', os.path.basename(file_path), 
+                              '-type', 'f', '-exec', 'true', '{}', ';'],
+                             check=False, timeout=5,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                logger.debug("已使用find命令访问文件，刷新dentry缓存")
+            except Exception:
+                pass
+            
+            # 方法8: 使用ls命令列出目录，强制文件系统重新扫描目录
+            # 这是最直接的方法，可以强制刷新目录的dentry缓存
+            try:
+                subprocess.run(['ls', '-la', parent_dir],
+                             check=False, timeout=5,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                logger.debug("已使用ls命令列出目录，强制刷新dentry缓存")
             except Exception:
                 pass
             
@@ -279,16 +324,28 @@ async def create_character(
                                 clean_input_path = os.path.abspath(clean_input_path)
                                 logger.info(f"音频降噪成功: {clean_input_path}")
                                 
-                                # 确保文件系统已同步，并触发目录索引更新
+                                # 强制刷新文件系统和目录缓存，确保FastAPI StaticFiles能够识别新文件
+                                logger.info("强制刷新文件系统和目录缓存，确保FastAPI StaticFiles能够识别新文件...")
                                 ensure_file_accessible(clean_input_path)
                                 
-                                # 关键：等待文件系统完全同步，让FastAPI StaticFiles能够识别新文件
-                                # 这解决了文件写入后立即访问时一直loading的问题
-                                logger.info("等待文件系统同步，确保FastAPI StaticFiles能够识别新文件...")
-                                time.sleep(2.0)  # 等待2秒，让文件系统和目录索引完全同步
+                                # 关键：等待足够长的时间，确保文件系统完全同步
+                                # FastAPI StaticFiles可能在第一次访问目录时才扫描文件列表
+                                # 需要等待文件系统的dentry缓存和inode缓存完全更新
+                                # 注意：如果问题仍然存在，可能需要等待更长时间（5-10秒）
+                                logger.info("等待文件系统完全同步（5秒）...")
+                                time.sleep(5.0)
                                 
-                                # 再次验证文件可访问性（确保目录索引已更新）
+                                # 再次强制刷新（os.listdir会强制文件系统重新扫描目录）
                                 ensure_file_accessible(clean_input_path)
+                                
+                                # 验证文件确实存在且可读
+                                if os.path.exists(clean_input_path) and os.access(clean_input_path, os.R_OK):
+                                    file_size = os.path.getsize(clean_input_path)
+                                    logger.info(f"文件验证通过: {clean_input_path}, 大小: {file_size} bytes")
+                                else:
+                                    logger.warning(f"文件验证失败: {clean_input_path}")
+                                
+                                logger.info("文件系统和目录缓存已刷新，文件应该可以通过HTTP访问")
                             else:
                                 logger.warning("音频降噪失败，跳过后续克隆步骤")
                         except Exception as e:
