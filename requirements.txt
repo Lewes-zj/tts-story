@@ -15,3 +15,4 @@ numpy
 funasr>=1.0.0
 torch>=1.13.0
 torchaudio
+dashscope>=1.17.0

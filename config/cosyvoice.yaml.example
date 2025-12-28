@@ -1,0 +1,23 @@
+# CosyVoice 声音复刻配置文件示例
+# 复制此文件为 cosyvoice.yaml 并填入实际的密钥信息
+# 注意：cosyvoice.yaml 文件包含敏感信息，不应提交到代码仓库
+
+cosyvoice:
+  # DashScope API Key
+  # 获取方式：https://dashscope.console.aliyun.com/apiKey
+  api_key: "your_dashscope_api_key"
+  
+  # 默认使用的语音合成模型
+  # 可选值: cosyvoice-v1, cosyvoice-v2, cosyvoice-v3-flash, cosyvoice-v3-plus
+  default_target_model: "cosyvoice-v3-plus"
+  
+  # 音色前缀（仅允许数字和小写字母，小于十个字符）
+  default_prefix: "myvoice"
+  
+  # 语音合成默认参数
+  synthesis:
+    format: "wav"          # 输出格式: wav, mp3, m4a
+    sample_rate: 24000     # 采样率
+    speech_rate: 1.0       # 语速 (0.5-2.0)
+    volume: 1.0            # 音量 (0.0-1.0)
+

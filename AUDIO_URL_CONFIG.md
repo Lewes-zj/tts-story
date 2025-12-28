@@ -1,4 +1,4 @@
-# 音频URL配置说明
+# 音频 URL 配置说明
 
 ## 问题背景
 
@@ -8,7 +8,9 @@
 
 ### 1. 后端静态文件服务
 
-后端 FastAPI 已经挂载了静态文件服务：
+后端 FastAPI 已经挂载了两个静态文件服务：
+
+**1. `/media` 挂载点**（任务输出目录）：
 
 ```python
 app.mount(
@@ -20,12 +22,29 @@ app.mount(
 
 这样，音频文件可以通过 `/media/{task_id}/4_final_output.wav` 访问。
 
+**2. `/outputs` 挂载点**（outputs 目录）：
+
+```python
+app.mount(
+    "/outputs",
+    StaticFiles(directory="outputs", check_dir=False),
+    name="outputs",
+)
+```
+
+这样，outputs 目录中的文件可以通过 `/outputs/{filename}` 访问。
+
 ### 2. 前端代理配置
 
-前端 Vite 配置中已经添加了 `/media` 的代理，将请求转发到后端：
+前端 Vite 配置中已经添加了 `/media` 和 `/outputs` 的代理，将请求转发到后端：
 
 ```javascript
 '/media': {
+  target: 'http://localhost:8000',
+  changeOrigin: true,
+  secure: false
+},
+'/outputs': {
   target: 'http://localhost:8000',
   changeOrigin: true,
   secure: false
@@ -34,7 +53,7 @@ app.mount(
 
 ### 3. PUBLIC_BASE_URL 环境变量设置
 
-`PUBLIC_BASE_URL` 用于生成音频的完整访问URL。有两种设置方式：
+`PUBLIC_BASE_URL` 用于生成音频的完整访问 URL。有两种设置方式：
 
 #### 方式一：使用相对路径（推荐，适用于前端代理场景）
 
@@ -62,19 +81,21 @@ export PUBLIC_BASE_URL="https://xxx-6008.gradio.live"
 
 ## 配置步骤
 
-### 对于你的场景（前端在6008端口，通过算力云域名访问）
+### 对于你的场景（前端在 6008 端口，通过算力云域名访问）
 
 **推荐配置：不设置 `PUBLIC_BASE_URL`，使用相对路径**
 
 1. **确保后端服务运行在 8000 端口**：
+
    ```bash
    cd tts-story
    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
 
-2. **确保前端 Vite 配置了 `/media` 代理**（已完成）：
+2. **确保前端 Vite 配置了 `/media` 和 `/outputs` 代理**（已完成）：
+
    - 前端在 6008 端口启动
-   - Vite 自动将 `/media` 请求代理到 `http://localhost:8000`
+   - Vite 自动将 `/media` 和 `/outputs` 请求代理到 `http://localhost:8000`
 
 3. **后端不需要设置 `PUBLIC_BASE_URL`**：
    - 后端会返回相对路径 `/media/{task_id}/4_final_output.wav`
@@ -82,8 +103,8 @@ export PUBLIC_BASE_URL="https://xxx-6008.gradio.live"
 
 ### 验证配置
 
-1. 启动后端服务（8000端口）
-2. 启动前端服务（6008端口）
+1. 启动后端服务（8000 端口）
+2. 启动前端服务（6008 端口）
 3. 创建一个生成任务
 4. 任务完成后，检查任务状态中的 `output_url` 字段
 5. 前端应该能够通过 `output_url` 播放音频
@@ -107,7 +128,7 @@ Vite 代理转发到 http://localhost:8000/media/{task_id}/4_final_output.wav
 ## 注意事项
 
 1. **确保后端服务运行**：前端代理需要后端服务在 8000 端口运行
-2. **文件权限**：确保 `data/tasks/` 目录有读取权限
+2. **文件权限**：确保 `data/tasks/` 和 `outputs/` 目录有读取权限
 3. **CORS 配置**：后端已经配置了 CORS，允许跨域访问
 4. **相对路径 vs 绝对路径**：
    - 使用相对路径：前端代理自动处理，无需额外配置
@@ -118,27 +139,30 @@ Vite 代理转发到 http://localhost:8000/media/{task_id}/4_final_output.wav
 ### 问题：前端无法播放音频
 
 1. **检查后端服务是否运行**：
+
    ```bash
    curl http://localhost:8000/health
    ```
 
 2. **检查音频文件是否存在**：
+
    ```bash
    ls -la tts-story/data/tasks/{task_id}/4_final_output.wav
    ```
 
 3. **检查前端代理配置**：
-   - 确认 `vite.config.js` 中有 `/media` 代理配置
+
+   - 确认 `vite.config.js` 中有 `/media` 和 `/outputs` 代理配置
    - 重启前端服务
 
 4. **检查浏览器网络请求**：
    - 打开浏览器开发者工具
    - 查看 Network 标签
-   - 检查 `/media/...` 请求是否成功
+   - 检查 `/media/...` 和 `/outputs/...` 请求是否成功
 
 ### 问题：返回 404 错误
 
-- 检查任务ID是否正确
+- 检查任务 ID 是否正确
 - 检查音频文件是否已生成完成
 - 检查文件路径是否正确
 
@@ -146,4 +170,3 @@ Vite 代理转发到 http://localhost:8000/media/{task_id}/4_final_output.wav
 
 - 后端已经配置了 CORS，允许所有来源
 - 如果仍有问题，检查后端日志
-
