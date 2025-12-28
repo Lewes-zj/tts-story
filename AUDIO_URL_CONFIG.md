@@ -213,3 +213,69 @@ Vite 代理转发到 http://localhost:8000/media/{task_id}/4_final_output.wav
    ```bash
    curl http://localhost:8000/outputs/22/31/1766503007987_clean.wav
    ```
+
+### 问题：处理流程中文件无法通过 URL 访问（文件系统同步延迟）
+
+**症状**：
+
+- 音频处理流程中，步骤 1 完成后生成的音频文件，在步骤 2 通过 HTTP URL 访问时失败
+- 但整个流程完成后，文件可以正常访问
+- 错误信息：`ResponseTimeout` 或 `404 Not Found`
+
+**原因**：
+
+1. 文件系统同步延迟：文件写入后，文件系统可能还没有完全同步到磁盘
+2. 文件权限问题：新创建的文件可能权限不正确
+3. FastAPI StaticFiles 缓存：可能缓存了目录结构，新文件未被识别
+
+**解决方案**（已在代码中实现）：
+
+1. **文件同步和验证**：
+
+   - 在 `character_api.py` 中添加了 `ensure_file_accessible()` 函数
+   - 确保文件权限正确（可读）
+   - 刷新文件系统缓存
+   - 验证文件可读性
+
+2. **处理流程优化**：
+
+   - 步骤 1 完成后，立即验证文件可访问性
+   - 步骤 2 使用 URL 前，再次验证文件并添加短暂延迟（0.5 秒）
+   - 验证文件大小，确保文件已完全写入
+
+3. **重试机制**：
+   - 如果文件验证失败，会重试最多 5 次
+   - 每次重试间隔 0.5 秒
+
+**代码位置**：
+
+- `tts-story/scripts/character_api.py` 中的 `ensure_file_accessible()` 函数
+- 在步骤 1 完成后和步骤 2 使用 URL 前调用
+
+**如果问题仍然存在**：
+
+1. **检查文件系统类型**：
+
+   ```bash
+   df -T /root/autodl-tmp/tts-story/outputs
+   ```
+
+   某些网络文件系统（如 NFS）可能有更长的同步延迟
+
+2. **增加延迟时间**：
+   修改 `character_api.py` 中的延迟时间：
+
+   ```python
+   time.sleep(1.0)  # 增加到1秒或更长
+   ```
+
+3. **检查文件权限**：
+
+   ```bash
+   ls -la /root/autodl-tmp/tts-story/outputs/2/57/
+   ```
+
+   确保文件有读取权限（`-r--r--r--` 或 `-rw-r--r--`）
+
+4. **使用本地文件路径**（如果 CosyVoice 支持）：
+   如果 CosyVoice V3 API 支持本地文件路径，可以考虑直接传递文件路径而不是 URL

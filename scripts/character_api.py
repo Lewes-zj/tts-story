@@ -6,6 +6,9 @@ from typing import List, Optional
 import os
 import logging
 import shutil
+import time
+import stat
+from typing import Optional
 from scripts.character_dao import CharacterDAO
 from scripts.user_input_audio_dao import UserInputAudioDAO
 from scripts.file_dao import FileDAO
@@ -31,6 +34,78 @@ os.makedirs(OUTPUTS_DIR, exist_ok=True)
 character_dao = CharacterDAO()
 user_input_audio_dao = UserInputAudioDAO()
 file_dao = FileDAO()
+
+
+def ensure_file_accessible(file_path: str, max_retries: int = 5, retry_delay: float = 0.5) -> bool:
+    """
+    确保文件可以被HTTP访问
+    
+    通过以下方式确保文件可访问：
+    1. 确保文件存在
+    2. 设置文件权限为可读
+    3. 刷新文件系统缓存
+    4. 验证文件可读
+    
+    Args:
+        file_path: 文件路径
+        max_retries: 最大重试次数
+        retry_delay: 重试延迟（秒）
+    
+    Returns:
+        bool: 文件是否可访问
+    """
+    for attempt in range(max_retries):
+        try:
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                logger.warning(f"文件不存在 (尝试 {attempt + 1}/{max_retries}): {file_path}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                return False
+            
+            # 确保文件权限为可读（添加读取权限）
+            current_permissions = os.stat(file_path).st_mode
+            # 添加用户、组、其他用户的读取权限
+            os.chmod(file_path, current_permissions | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+            
+            # 刷新文件系统缓存（通过打开并关闭文件）
+            try:
+                with open(file_path, 'rb') as f:
+                    f.read(1)  # 读取一个字节以触发文件系统同步
+                    # 同步文件到磁盘
+                    try:
+                        os.fsync(f.fileno())  # Linux/Unix标准方法
+                    except (AttributeError, OSError):
+                        # Windows或不支持fsync的系统，尝试其他方法
+                        try:
+                            f.flush()
+                        except:
+                            pass
+            except Exception as e:
+                logger.warning(f"刷新文件缓存时出错: {str(e)}")
+            
+            # 验证文件可读
+            try:
+                with open(file_path, 'rb') as f:
+                    f.read(1)
+                logger.info(f"文件已验证可访问: {file_path}")
+                return True
+            except PermissionError:
+                logger.warning(f"文件权限不足 (尝试 {attempt + 1}/{max_retries}): {file_path}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                return False
+                
+        except Exception as e:
+            logger.warning(f"验证文件可访问性时出错 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            return False
+    
+    return False
 
 
 class CharacterRequest(BaseModel):
@@ -144,6 +219,13 @@ async def create_character(
                                 # 确保路径是绝对路径
                                 clean_input_path = os.path.abspath(clean_input_path)
                                 logger.info(f"音频降噪成功: {clean_input_path}")
+                                
+                                # 确保文件可以被HTTP访问（重要：解决文件系统同步延迟问题）
+                                logger.info("验证降噪音频文件可访问性...")
+                                if ensure_file_accessible(clean_input_path):
+                                    logger.info("降噪音频文件已验证可访问，可以用于后续步骤")
+                                else:
+                                    logger.warning("降噪音频文件验证失败，但继续处理")
                             else:
                                 logger.warning("音频降噪失败，跳过后续克隆步骤")
                         except Exception as e:
@@ -167,11 +249,29 @@ async def create_character(
                                         "PUBLIC_BASE_URL 未配置，跳过 CosyVoice V3 处理"
                                     )
                                 else:
+                                    # 在构建URL之前，再次确保文件可访问
+                                    logger.info("在构建CosyVoice URL之前，再次验证文件可访问性...")
+                                    if not ensure_file_accessible(clean_input_path, max_retries=3, retry_delay=0.3):
+                                        logger.warning("文件验证失败，但继续尝试使用URL")
+                                    
+                                    # 添加短暂延迟，确保文件系统完全同步
+                                    time.sleep(0.5)
+                                    
                                     # 构建公网可访问的音频URL
                                     # 路径格式: /outputs/{user_id}/{role_id}/{文件名}
                                     clean_file_name = os.path.basename(clean_input_path)
                                     audio_url = f"{public_base_url.rstrip('/')}/outputs/{user_id}/{role_id}/{clean_file_name}"
                                     logger.info(f"CosyVoice 音频URL: {audio_url}")
+                                    
+                                    # 验证文件大小，确保文件已完全写入
+                                    try:
+                                        file_size = os.path.getsize(clean_input_path)
+                                        logger.info(f"音频文件大小: {file_size} bytes")
+                                        if file_size == 0:
+                                            logger.error("音频文件大小为0，可能未完全写入")
+                                            raise ValueError("音频文件大小为0")
+                                    except Exception as e:
+                                        logger.error(f"验证文件大小时出错: {str(e)}")
 
                                     # 指定输出路径
                                     cosy_output_path = os.path.join(
