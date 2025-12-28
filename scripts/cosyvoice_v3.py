@@ -52,13 +52,13 @@ class CosyVoiceV3:
         self.poll_interval = poll_interval
         self.service = VoiceEnrollmentService()
         self.use_object_pool = use_object_pool
+        self.pool_size = pool_size
         
-        # 初始化对象池（单例模式，全局共享）
-        if self.use_object_pool:
-            self.object_pool = SpeechSynthesizerObjectPool(max_size=pool_size)
-            print(f"对象池已初始化，池大小: {pool_size}")
-        else:
-            self.object_pool = None
+        # 延迟初始化对象池（不在 __init__ 中立即创建连接）
+        # 对象池将在第一次使用时才初始化，避免初始化时连接失败
+        self.object_pool = None
+        self._object_pool_initialized = False
+        self._object_pool_init_failed = False
     
     def synthesize(
         self,
@@ -159,6 +159,40 @@ class CosyVoiceV3:
             print(error_msg)
             raise RuntimeError(error_msg)
     
+    def _ensure_object_pool(self):
+        """
+        确保对象池已初始化（延迟初始化）
+        如果初始化失败，将降级到非对象池模式
+        
+        Returns:
+            bool: 对象池是否可用
+        """
+        if not self.use_object_pool:
+            return False
+        
+        # 如果已经初始化失败，不再尝试
+        if self._object_pool_init_failed:
+            return False
+        
+        # 如果已经初始化成功，直接返回
+        if self._object_pool_initialized and self.object_pool:
+            return True
+        
+        # 尝试初始化对象池
+        try:
+            print(f"正在初始化对象池（延迟初始化），池大小: {self.pool_size}...")
+            self.object_pool = SpeechSynthesizerObjectPool(max_size=self.pool_size)
+            self._object_pool_initialized = True
+            print(f"对象池初始化成功，池大小: {self.pool_size}")
+            return True
+        except Exception as e:
+            print(f"警告: 对象池初始化失败: {e}")
+            print("将降级到非对象池模式（每次创建新连接）")
+            self._object_pool_init_failed = True
+            self.object_pool = None
+            self.use_object_pool = False  # 自动禁用对象池
+            return False
+    
     def _synthesize_speech(self, voice_id: str, text: str) -> bytes:
         """
         使用复刻音色进行语音合成（私有方法）
@@ -177,7 +211,10 @@ class CosyVoiceV3:
         print("\n--- Step 3: Synthesizing speech with the new voice ---")
         synthesizer = None
         try:
-            if self.use_object_pool and self.object_pool:
+            # 确保对象池已初始化（延迟初始化）
+            pool_available = self._ensure_object_pool()
+            
+            if pool_available and self.object_pool:
                 # 从对象池中借用 synthesizer
                 print("从对象池获取 SpeechSynthesizer 对象...")
                 synthesizer = self.object_pool.borrow_synthesizer(
@@ -195,9 +232,17 @@ class CosyVoiceV3:
             print(f"Speech synthesis successful. Request ID: {synthesizer.get_last_request_id()}")
             
             # 成功时归还对象到池中
-            if self.use_object_pool and self.object_pool:
-                self.object_pool.return_synthesizer(synthesizer)
-                print("已归还 SpeechSynthesizer 对象到对象池")
+            if self.object_pool and not self._object_pool_init_failed:
+                try:
+                    self.object_pool.return_synthesizer(synthesizer)
+                    print("已归还 SpeechSynthesizer 对象到对象池")
+                except Exception as return_error:
+                    print(f"归还对象到池时出错: {return_error}")
+                    # 归还失败时关闭连接
+                    try:
+                        synthesizer.close()
+                    except Exception:
+                        pass
             
             return audio_data
             
@@ -205,7 +250,7 @@ class CosyVoiceV3:
             print(f"Error during speech synthesis: {e}")
             # 失败时处理对象
             if synthesizer:
-                if self.use_object_pool and self.object_pool:
+                if self.object_pool and not self._object_pool_init_failed:
                     # 失败时不归还对象，关闭连接并丢弃
                     try:
                         synthesizer.close()
@@ -356,8 +401,8 @@ def main():
             print(f"✓ 对象池模式: 已启用（池大小: {args.pool_size}）")
         print("=" * 60)
         
-        # 清理：关闭对象池（如果使用）
-        if args.use_object_pool:
+        # 清理：关闭对象池（如果使用且已初始化）
+        if args.use_object_pool and client.object_pool and client._object_pool_initialized:
             try:
                 client.object_pool.shutdown()
                 print("对象池已关闭")
