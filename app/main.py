@@ -70,17 +70,24 @@ app.add_middleware(
 # 线程池执行器 (用于后台任务)
 executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="audio_pipeline_")
 
+# 获取项目根目录（app/main.py 在 app/ 目录下，所以需要上一级目录）
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # 静态资源挂载：暴露生成任务输出目录，供前端播放音频
+tasks_dir = os.path.join(project_root, "data", "tasks")
+os.makedirs(tasks_dir, exist_ok=True)
 app.mount(
     "/media",
-    StaticFiles(directory="data/tasks", check_dir=False),
+    StaticFiles(directory=tasks_dir, check_dir=False),
     name="media",
 )
 
-# 静态资源挂载：暴露 outputs 目录，供前端访问输出文件
+# 静态资源挂载：暴露 outputs 目录，供前端访问输出文件（支持子目录访问）
+outputs_dir = os.path.join(project_root, "outputs")
+os.makedirs(outputs_dir, exist_ok=True)
 app.mount(
     "/outputs",
-    StaticFiles(directory="outputs", check_dir=False),
+    StaticFiles(directory=outputs_dir, check_dir=False),
     name="outputs",
 )
 

@@ -25,14 +25,24 @@ app.mount(
 **2. `/outputs` 挂载点**（outputs 目录）：
 
 ```python
+# 获取项目根目录
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+outputs_dir = os.path.join(project_root, "outputs")
+os.makedirs(outputs_dir, exist_ok=True)
+
 app.mount(
     "/outputs",
-    StaticFiles(directory="outputs", check_dir=False),
+    StaticFiles(directory=outputs_dir, check_dir=False),
     name="outputs",
 )
 ```
 
-这样，outputs 目录中的文件可以通过 `/outputs/{filename}` 访问。
+这样，outputs 目录中的文件可以通过以下方式访问：
+
+- 根目录文件：`/outputs/{filename}` （例如：`/outputs/1766503007987_clean.wav`）
+- 子目录文件：`/outputs/{user_id}/{role_id}/{filename}` （例如：`/outputs/22/31/1766503007987_clean.wav`）
+
+**注意**：使用绝对路径可以确保 FastAPI 正确解析子目录路径，避免相对路径解析问题。
 
 ### 2. 前端代理配置
 
@@ -170,3 +180,36 @@ Vite 代理转发到 http://localhost:8000/media/{task_id}/4_final_output.wav
 
 - 后端已经配置了 CORS，允许所有来源
 - 如果仍有问题，检查后端日志
+
+### 问题：子目录文件无法访问（例如 `/outputs/22/31/filename.wav`）
+
+1. **检查文件是否存在**：
+
+   ```bash
+   ls -la tts-story/outputs/22/31/filename.wav
+   ```
+
+2. **检查目录权限**：
+
+   ```bash
+   ls -ld tts-story/outputs/22/31/
+   ```
+
+   确保目录有读取权限
+
+3. **检查后端配置**：
+
+   - 确认 `app/main.py` 中使用的是绝对路径配置
+   - 确认 `StaticFiles` 的 `directory` 参数是绝对路径
+   - 重启后端服务
+
+4. **验证访问路径**：
+
+   - 确保访问路径以 `/outputs/` 开头（带前导斜杠）
+   - 例如：`/outputs/22/31/1766503007987_clean.wav` ✅
+   - 错误：`outputs/22/31/1766503007987_clean.wav` ❌（缺少前导斜杠）
+
+5. **测试直接访问**：
+   ```bash
+   curl http://localhost:8000/outputs/22/31/1766503007987_clean.wav
+   ```
