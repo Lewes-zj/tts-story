@@ -8,7 +8,6 @@ import logging
 import shutil
 import time
 import stat
-from typing import Optional
 import requests
 from urllib.parse import urlparse  # 新增：用于解析URL
 from scripts.character_dao import CharacterDAO
@@ -80,6 +79,23 @@ def ensure_file_accessible(file_path: str, max_retries: int = 5, retry_delay: fl
             except Exception:
                 pass
             
+            # 关键：更新父目录的修改时间，触发文件系统重新索引目录内容
+            # 这可以解决FastAPI StaticFiles无法立即识别新文件的问题
+            try:
+                parent_dir = os.path.dirname(file_path)
+                if os.path.exists(parent_dir):
+                    # touch父目录，更新mtime
+                    os.utime(parent_dir, None)
+                    logger.debug(f"已更新父目录mtime: {parent_dir}")
+            except Exception as e:
+                logger.debug(f"更新父目录mtime失败: {str(e)}")
+            
+            # 强制同步文件系统（可选，但可能很慢）
+            try:
+                os.sync()  # 强制同步所有挂起的写入
+            except Exception:
+                pass
+            
             return True
                 
         except Exception as e:
@@ -145,16 +161,18 @@ def ensure_file_accessible_via_http(
             # 如果失败且还有重试机会，等待后重试
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
-                
+                 
         except requests.exceptions.ConnectionError:
             # 如果连不上 localhost，说明服务可能堵死了
             logger.warning(f"无法连接到验证地址 (尝试 {attempt + 1}/{max_retries}) - 服务可能繁忙")
-            if attempt < max_retries - 1: time.sleep(retry_delay)
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
         except Exception as e:
             logger.warning(f"验证 HTTP 访问异常: {str(e)}")
-            if attempt < max_retries - 1: time.sleep(retry_delay)
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
     
-    logger.error(f"文件 HTTP 验证最终失败，但将尝试继续执行流程。")
+    logger.error("文件 HTTP 验证最终失败，但将尝试继续执行流程。")
     return False
 
 
@@ -261,9 +279,16 @@ async def create_character(
                                 clean_input_path = os.path.abspath(clean_input_path)
                                 logger.info(f"音频降噪成功: {clean_input_path}")
                                 
-                                # 确保文件系统已同步
-                                if not ensure_file_accessible(clean_input_path):
-                                    logger.warning("降噪音频文件验证失败，但继续处理")
+                                # 确保文件系统已同步，并触发目录索引更新
+                                ensure_file_accessible(clean_input_path)
+                                
+                                # 关键：等待文件系统完全同步，让FastAPI StaticFiles能够识别新文件
+                                # 这解决了文件写入后立即访问时一直loading的问题
+                                logger.info("等待文件系统同步，确保FastAPI StaticFiles能够识别新文件...")
+                                time.sleep(2.0)  # 等待2秒，让文件系统和目录索引完全同步
+                                
+                                # 再次验证文件可访问性（确保目录索引已更新）
+                                ensure_file_accessible(clean_input_path)
                             else:
                                 logger.warning("音频降噪失败，跳过后续克隆步骤")
                         except Exception as e:
@@ -281,23 +306,17 @@ async def create_character(
                                 if not public_base_url:
                                     logger.warning("PUBLIC_BASE_URL 未配置，跳过 CosyVoice V3 处理")
                                 else:
-                                    time.sleep(0.5) # 等待文件系统
-                                    
                                     clean_file_name = os.path.basename(clean_input_path)
                                     audio_url = f"{public_base_url.rstrip('/')}/outputs/{user_id}/{role_id}/{clean_file_name}"
                                     logger.info(f"CosyVoice 音频URL: {audio_url}")
                                     
-                                    # 尝试验证 HTTP 可访问性 (改进版)
-                                    # 如果验证失败，不应该中断流程，而是记录错误并继续尝试
-                                    verification_success = ensure_file_accessible_via_http(
-                                        clean_input_path, 
-                                        audio_url, 
-                                        max_retries=3, 
-                                        retry_delay=1.0
-                                    )
-                                    
-                                    if not verification_success:
-                                        logger.warning("HTTP 验证未通过，但这可能是由于单线程死锁导致的。将尝试强行进行 CosyVoice 处理。")
+                                    # 注意：不进行HTTP验证，因为：
+                                    # 1. 文件已经写入并同步
+                                    # 2. 目录权限已设置
+                                    # 3. 父目录mtime已更新
+                                    # 4. HTTP验证可能导致单线程阻塞（localhost:8000被当前请求占用）
+                                    # 5. 即使验证失败，文件也可能已经可用（文件系统同步有延迟）
+                                    logger.info("跳过HTTP验证，直接使用URL（文件已同步，目录索引已更新）")
                                     
                                     cosy_output_path = os.path.join(user_role_dir, f"{base_name}_cosyvoice.mp3")
                                     cosy_output_path = os.path.abspath(cosy_output_path)
