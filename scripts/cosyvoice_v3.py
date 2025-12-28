@@ -9,7 +9,7 @@ import time
 import argparse
 from typing import Optional
 import dashscope
-from dashscope.audio.tts_v2 import VoiceEnrollmentService, SpeechSynthesizer
+from dashscope.audio.tts_v2 import VoiceEnrollmentService, SpeechSynthesizer, SpeechSynthesizerObjectPool
 
 
 class CosyVoiceV3:
@@ -21,7 +21,9 @@ class CosyVoiceV3:
         target_model: str = "cosyvoice-v3-plus",
         voice_prefix: str = "lxvoice",
         max_attempts: int = 30,
-        poll_interval: int = 10
+        poll_interval: int = 10,
+        pool_size: int = 20,
+        use_object_pool: bool = True
     ):
         """
         初始化 CosyVoice V3 客户端
@@ -32,6 +34,8 @@ class CosyVoiceV3:
             voice_prefix: 音色前缀，仅允许数字和小写字母，小于十个字符，默认为 "lxvoice"
             max_attempts: 轮询最大尝试次数，默认为 30
             poll_interval: 轮询间隔（秒），默认为 10
+            pool_size: 对象池大小，默认为 20（建议设置为峰值并发数的 1.5 至 2 倍）
+            use_object_pool: 是否使用对象池，默认为 True（高并发场景推荐使用）
         """
         # 设置 API Key
         if api_key:
@@ -47,6 +51,14 @@ class CosyVoiceV3:
         self.max_attempts = max_attempts
         self.poll_interval = poll_interval
         self.service = VoiceEnrollmentService()
+        self.use_object_pool = use_object_pool
+        
+        # 初始化对象池（单例模式，全局共享）
+        if self.use_object_pool:
+            self.object_pool = SpeechSynthesizerObjectPool(max_size=pool_size)
+            print(f"对象池已初始化，池大小: {pool_size}")
+        else:
+            self.object_pool = None
     
     def synthesize(
         self,
@@ -150,6 +162,7 @@ class CosyVoiceV3:
     def _synthesize_speech(self, voice_id: str, text: str) -> bytes:
         """
         使用复刻音色进行语音合成（私有方法）
+        支持对象池模式以提高高并发场景下的性能
         
         Args:
             voice_id: 音色 ID
@@ -162,13 +175,49 @@ class CosyVoiceV3:
             Exception: 当语音合成失败时
         """
         print("\n--- Step 3: Synthesizing speech with the new voice ---")
+        synthesizer = None
         try:
-            synthesizer = SpeechSynthesizer(model=self.target_model, voice=voice_id)
+            if self.use_object_pool and self.object_pool:
+                # 从对象池中借用 synthesizer
+                print("从对象池获取 SpeechSynthesizer 对象...")
+                synthesizer = self.object_pool.borrow_synthesizer(
+                    model=self.target_model,
+                    voice=voice_id
+                )
+                print("已从对象池获取对象，开始合成...")
+            else:
+                # 不使用对象池，直接创建新对象
+                print("创建新的 SpeechSynthesizer 对象...")
+                synthesizer = SpeechSynthesizer(model=self.target_model, voice=voice_id)
+            
+            # 执行语音合成
             audio_data = synthesizer.call(text)
             print(f"Speech synthesis successful. Request ID: {synthesizer.get_last_request_id()}")
+            
+            # 成功时归还对象到池中
+            if self.use_object_pool and self.object_pool:
+                self.object_pool.return_synthesizer(synthesizer)
+                print("已归还 SpeechSynthesizer 对象到对象池")
+            
             return audio_data
+            
         except Exception as e:
             print(f"Error during speech synthesis: {e}")
+            # 失败时处理对象
+            if synthesizer:
+                if self.use_object_pool and self.object_pool:
+                    # 失败时不归还对象，关闭连接并丢弃
+                    try:
+                        synthesizer.close()
+                        print("已关闭失败的 SpeechSynthesizer 连接，对象已废弃")
+                    except Exception as close_error:
+                        print(f"关闭连接时出错: {close_error}")
+                else:
+                    # 非对象池模式，直接关闭
+                    try:
+                        synthesizer.close()
+                    except Exception:
+                        pass
             raise e
 
 
@@ -249,6 +298,22 @@ def main():
         help="轮询间隔秒数（默认: 10）"
     )
     
+    parser.add_argument(
+        "--pool-size",
+        dest="pool_size",
+        type=int,
+        default=20,
+        help="对象池大小（默认: 20，建议设置为峰值并发数的 1.5 至 2 倍，范围: 1-100）"
+    )
+    
+    parser.add_argument(
+        "--no-object-pool",
+        dest="use_object_pool",
+        action="store_false",
+        default=True,
+        help="禁用对象池（默认启用对象池以提高高并发性能）"
+    )
+    
     args = parser.parse_args()
     
     # 执行语音合成
@@ -263,7 +328,9 @@ def main():
             api_key=args.api_key,
             voice_prefix=args.voice_prefix,
             max_attempts=args.max_attempts,
-            poll_interval=args.poll_interval
+            poll_interval=args.poll_interval,
+            pool_size=args.pool_size,
+            use_object_pool=args.use_object_pool
         )
         
         # 显示参数信息
@@ -285,9 +352,19 @@ def main():
         print("✓ 语音合成成功！")
         print(f"✓ 音频已保存到: {args.output_file}")
         print(f"✓ 音频大小: {len(audio_data)} 字节")
+        if args.use_object_pool:
+            print(f"✓ 对象池模式: 已启用（池大小: {args.pool_size}）")
         print("=" * 60)
         
-    except ValueError as e:
+        # 清理：关闭对象池（如果使用）
+        if args.use_object_pool:
+            try:
+                client.object_pool.shutdown()
+                print("对象池已关闭")
+            except Exception as shutdown_error:
+                print(f"关闭对象池时出错: {shutdown_error}")
+        
+    except ValueError:
         print("\n" + "=" * 60)
         print("✗ 错误: API Key 未设置")
         print("=" * 60)
