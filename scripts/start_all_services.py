@@ -171,17 +171,73 @@ def start_services(daemon=False):
     # 获取项目根目录
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+    # 准备环境变量（确保所有启动方式都使用相同的环境变量）
+    env = os.environ.copy()
+    
+    # 确保PYTHONPATH包含当前目录，就像命令行中那样
+    current_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        f"{project_root}:{current_pythonpath}"
+        if current_pythonpath
+        else project_root
+    )
+    
+    # 设置 PUBLIC_BASE_URL（如果未设置，尝试从 ~/.bashrc 读取或使用默认值）
+    if "PUBLIC_BASE_URL" not in env or not env["PUBLIC_BASE_URL"]:
+        # 尝试从 ~/.bashrc 读取（如果用户在 shell 中设置了）
+        bashrc_path = os.path.expanduser("~/.bashrc")
+        if os.path.exists(bashrc_path):
+            try:
+                with open(bashrc_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip().startswith("export PUBLIC_BASE_URL="):
+                            # 提取值（处理引号）
+                            value = line.split("=", 1)[1].strip()
+                            # 去除引号
+                            if value.startswith('"') and value.endswith('"'):
+                                value = value[1:-1]
+                            elif value.startswith("'") and value.endswith("'"):
+                                value = value[1:-1]
+                            if value:
+                                env["PUBLIC_BASE_URL"] = value
+                                print(f"从 ~/.bashrc 读取 PUBLIC_BASE_URL: {value}")
+                                break
+            except Exception as e:
+                print(f"读取 ~/.bashrc 时出错: {e}")
+        
+        # 如果仍然没有设置，检查是否有 .env 文件
+        if "PUBLIC_BASE_URL" not in env or not env["PUBLIC_BASE_URL"]:
+            env_file = os.path.join(project_root, ".env")
+            if os.path.exists(env_file):
+                try:
+                    with open(env_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip().startswith("PUBLIC_BASE_URL="):
+                                value = line.split("=", 1)[1].strip()
+                                if value.startswith('"') and value.endswith('"'):
+                                    value = value[1:-1]
+                                elif value.startswith("'") and value.endswith("'"):
+                                    value = value[1:-1]
+                                if value:
+                                    env["PUBLIC_BASE_URL"] = value
+                                    print(f"从 .env 文件读取 PUBLIC_BASE_URL: {value}")
+                                    break
+                except Exception as e:
+                    print(f"读取 .env 文件时出错: {e}")
+        
+        # 如果仍然没有设置，提示用户
+        if "PUBLIC_BASE_URL" not in env or not env["PUBLIC_BASE_URL"]:
+            print("⚠️  警告: PUBLIC_BASE_URL 环境变量未设置")
+            print("   如果需要使用 CosyVoice V3，请设置此环境变量")
+            print("   可以通过以下方式设置:")
+            print("   1. 在启动前设置: export PUBLIC_BASE_URL='https://your-domain.com:8443'")
+            print("   2. 创建 .env 文件: echo 'PUBLIC_BASE_URL=https://your-domain.com:8443' >> .env")
+            print("   3. 在 ~/.bashrc 中添加: export PUBLIC_BASE_URL='https://your-domain.com:8443'")
+    else:
+        print(f"✓ PUBLIC_BASE_URL 已设置: {env['PUBLIC_BASE_URL']}")
+
     if daemon:
         print("以守护进程模式启动...")
-        # 以守护进程模式启动，设置工作目录和环境变量
-        env = os.environ.copy()
-        # 确保PYTHONPATH包含当前目录，就像命令行中那样
-        current_pythonpath = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = (
-            f"{project_root}:{current_pythonpath}"
-            if current_pythonpath
-            else project_root
-        )
 
         # 创建日志文件
         log_file = os.path.join(project_root, "app.log")
@@ -224,6 +280,7 @@ def start_services(daemon=False):
                     "8000",
                 ],
                 cwd=project_root,
+                env=env,  # 传递环境变量
             )
         except FileNotFoundError:
             # 如果没有 uv，使用传统的 Python 方式
@@ -241,6 +298,7 @@ def start_services(daemon=False):
                     "--reload",
                 ],
                 cwd=project_root,
+                env=env,  # 传递环境变量
             )
 
         print("统一API网关已启动:")
