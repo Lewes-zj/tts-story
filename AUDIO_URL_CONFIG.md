@@ -230,27 +230,48 @@ Vite 代理转发到 http://localhost:8000/media/{task_id}/4_final_output.wav
 
 **解决方案**（已在代码中实现）：
 
-1. **文件同步和验证**：
+1. **文件系统层面验证**：
 
    - 在 `character_api.py` 中添加了 `ensure_file_accessible()` 函数
    - 确保文件权限正确（可读）
-   - 刷新文件系统缓存
+   - 刷新文件系统缓存（使用 `os.fsync()`）
    - 验证文件可读性
+   - 最多重试 5 次，每次间隔 0.5 秒
 
-2. **处理流程优化**：
+2. **HTTP 层面验证**（关键改进，解决文件无法通过 URL 访问的问题）：
 
-   - 步骤 1 完成后，立即验证文件可访问性
-   - 步骤 2 使用 URL 前，再次验证文件并添加短暂延迟（0.5 秒）
-   - 验证文件大小，确保文件已完全写入
+   - 添加了 `ensure_file_accessible_via_http()` 函数
+   - 通过实际 HTTP 请求（HEAD 请求）验证文件是否可以通过 URL 访问
+   - 这确保 FastAPI 的 StaticFiles 已经识别到新文件
+   - 验证 Content-Length，确保文件不为空
+   - 最多重试 10 次，每次间隔 1 秒
 
-3. **重试机制**：
-   - 如果文件验证失败，会重试最多 5 次
-   - 每次重试间隔 0.5 秒
+3. **处理流程优化**：
+
+   - 步骤 1 完成后：立即验证文件可访问性（文件系统层面）
+   - 步骤 2 使用 URL 前：
+     - 再次验证文件（文件系统层面）
+     - 添加短暂延迟（0.5 秒）
+     - 验证文件大小，确保文件已完全写入
+     - **通过 HTTP 请求验证文件是否真的可以通过 URL 访问**（新增，关键）
+     - 如果 HTTP 验证失败，会重试最多 10 次，每次间隔 1 秒
 
 **代码位置**：
 
-- `tts-story/scripts/character_api.py` 中的 `ensure_file_accessible()` 函数
+- `tts-story/scripts/character_api.py` 中的两个验证函数：
+  - `ensure_file_accessible()`: 文件系统层面验证
+  - `ensure_file_accessible_via_http()`: HTTP 层面验证（新增，关键）
 - 在步骤 1 完成后和步骤 2 使用 URL 前调用
+
+**HTTP 验证机制**：
+
+新增的 `ensure_file_accessible_via_http()` 函数会：
+
+1. 发送 HTTP HEAD 请求到文件 URL
+2. 检查响应状态码（期望 200）
+3. 验证 Content-Length，确保文件不为空
+4. 如果失败，重试最多 10 次，每次间隔 1 秒
+5. 这确保 FastAPI 的 StaticFiles 已经识别到新文件，文件可以通过 HTTP 访问
 
 **如果问题仍然存在**：
 

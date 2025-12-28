@@ -9,6 +9,7 @@ import shutil
 import time
 import stat
 from typing import Optional
+import requests
 from scripts.character_dao import CharacterDAO
 from scripts.user_input_audio_dao import UserInputAudioDAO
 from scripts.file_dao import FileDAO
@@ -38,7 +39,7 @@ file_dao = FileDAO()
 
 def ensure_file_accessible(file_path: str, max_retries: int = 5, retry_delay: float = 0.5) -> bool:
     """
-    确保文件可以被HTTP访问
+    确保文件可以被HTTP访问（文件系统层面）
     
     通过以下方式确保文件可访问：
     1. 确保文件存在
@@ -89,7 +90,7 @@ def ensure_file_accessible(file_path: str, max_retries: int = 5, retry_delay: fl
             try:
                 with open(file_path, 'rb') as f:
                     f.read(1)
-                logger.info(f"文件已验证可访问: {file_path}")
+                logger.info(f"文件已验证可访问（文件系统）: {file_path}")
                 return True
             except PermissionError:
                 logger.warning(f"文件权限不足 (尝试 {attempt + 1}/{max_retries}): {file_path}")
@@ -100,6 +101,69 @@ def ensure_file_accessible(file_path: str, max_retries: int = 5, retry_delay: fl
                 
         except Exception as e:
             logger.warning(f"验证文件可访问性时出错 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            return False
+    
+    return False
+
+
+def ensure_file_accessible_via_http(
+    file_path: str, 
+    http_url: str, 
+    max_retries: int = 10, 
+    retry_delay: float = 1.0,
+    timeout: float = 5.0
+) -> bool:
+    """
+    确保文件可以通过HTTP URL访问
+    
+    通过实际HTTP请求验证文件是否可以通过URL访问。
+    这可以确保FastAPI的StaticFiles已经识别到新文件。
+    
+    Args:
+        file_path: 文件路径（用于日志）
+        http_url: HTTP URL
+        max_retries: 最大重试次数
+        retry_delay: 重试延迟（秒）
+        timeout: HTTP请求超时时间（秒）
+    
+    Returns:
+        bool: 文件是否可以通过HTTP访问
+    """
+    for attempt in range(max_retries):
+        try:
+            # 发送HEAD请求检查文件是否存在（更轻量）
+            try:
+                response = requests.head(http_url, timeout=timeout, allow_redirects=True)
+                if response.status_code == 200:
+                    # 验证Content-Length，确保文件不为空
+                    content_length = response.headers.get('Content-Length')
+                    if content_length and int(content_length) > 0:
+                        logger.info(f"文件已验证可通过HTTP访问 (尝试 {attempt + 1}/{max_retries}): {http_url}")
+                        return True
+                    else:
+                        logger.warning(f"文件大小为0 (尝试 {attempt + 1}/{max_retries}): {http_url}")
+                elif response.status_code == 404:
+                    logger.warning(f"文件未找到 (尝试 {attempt + 1}/{max_retries}): {http_url}")
+                else:
+                    logger.warning(f"HTTP状态码异常: {response.status_code} (尝试 {attempt + 1}/{max_retries}): {http_url}")
+            except requests.exceptions.Timeout:
+                logger.warning(f"HTTP请求超时 (尝试 {attempt + 1}/{max_retries}): {http_url}")
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"HTTP请求失败: {str(e)} (尝试 {attempt + 1}/{max_retries}): {http_url}")
+            
+            # 如果失败且还有重试机会，等待后重试
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            else:
+                logger.error(f"文件无法通过HTTP访问（已重试 {max_retries} 次）: {http_url}")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"验证HTTP访问时出错 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
                 continue
@@ -272,7 +336,16 @@ async def create_character(
                                             raise ValueError("音频文件大小为0")
                                     except Exception as e:
                                         logger.error(f"验证文件大小时出错: {str(e)}")
-
+                                    
+                                    # 关键：通过HTTP请求验证文件是否真的可以通过URL访问
+                                    # 这确保FastAPI的StaticFiles已经识别到新文件
+                                    logger.info("通过HTTP请求验证文件可访问性...")
+                                    if not ensure_file_accessible_via_http(clean_input_path, audio_url, max_retries=10, retry_delay=1.0):
+                                        logger.error(f"文件无法通过HTTP访问，但继续尝试: {audio_url}")
+                                        # 即使验证失败，也继续尝试，因为可能是网络问题
+                                    else:
+                                        logger.info("文件已验证可通过HTTP访问，可以安全使用")
+                                    
                                     # 指定输出路径
                                     cosy_output_path = os.path.join(
                                         user_role_dir, f"{base_name}_cosyvoice.mp3"
