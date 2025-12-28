@@ -220,13 +220,57 @@ def process_character_voice_cloning(
                     logger.info(f"📁 输出文件路径: {cosy_output_path}")
 
                     logger.info("🔄 正在调用 CosyVoice V3 API 进行声音克隆...")
+                    
+                    # 添加重试机制，处理 WebSocket 连接问题
+                    max_retries = 3
+                    retry_delay = 5.0  # 重试前等待5秒
                     cosy_voice_client = CosyVoiceV3()
-                    cosy_voice_client.synthesize(
-                        audio_url=audio_url,
-                        text_to_synthesize=fixed_text,
-                        output_file=cosy_output_path,
-                    )
-                    logger.info("✓ CosyVoice V3 API 调用完成")
+                    
+                    for retry_count in range(max_retries):
+                        try:
+                            logger.info(f"   尝试 {retry_count + 1}/{max_retries}...")
+                            cosy_voice_client.synthesize(
+                                audio_url=audio_url,
+                                text_to_synthesize=fixed_text,
+                                output_file=cosy_output_path,
+                            )
+                            logger.info("✓ CosyVoice V3 API 调用完成")
+                            break  # 成功则跳出重试循环
+                        except TimeoutError as e:
+                            error_msg = str(e)
+                            logger.warning(f"⚠️ CosyVoice V3 WebSocket 连接超时 (尝试 {retry_count + 1}/{max_retries})")
+                            logger.warning(f"   错误信息: {error_msg}")
+                            
+                            if retry_count < max_retries - 1:
+                                logger.info(f"⏳ 等待 {retry_delay} 秒后重试...")
+                                time.sleep(retry_delay)
+                                # 每次重试前增加等待时间
+                                retry_delay *= 1.5
+                            else:
+                                logger.error("❌ CosyVoice V3 所有重试均失败，WebSocket 连接无法建立")
+                                logger.error("   可能原因：网络环境限制、防火墙阻止、代理配置问题")
+                                logger.error("   将跳过步骤2，直接使用降噪音频进行步骤3")
+                                raise
+                        except Exception as e:
+                            error_msg = str(e)
+                            error_type = type(e).__name__
+                            logger.warning(f"⚠️ CosyVoice V3 调用异常 (尝试 {retry_count + 1}/{max_retries}): {error_type}")
+                            logger.warning(f"   错误信息: {error_msg}")
+                            
+                            # 如果是 WebSocket 相关错误，进行重试
+                            if "websocket" in error_msg.lower() or "connection" in error_msg.lower():
+                                if retry_count < max_retries - 1:
+                                    logger.info(f"⏳ 等待 {retry_delay} 秒后重试...")
+                                    time.sleep(retry_delay)
+                                    retry_delay *= 1.5
+                                else:
+                                    logger.error("❌ CosyVoice V3 所有重试均失败")
+                                    logger.error("   将跳过步骤2，直接使用降噪音频进行步骤3")
+                                    raise
+                            else:
+                                # 其他类型的错误，直接抛出
+                                logger.error(f"❌ CosyVoice V3 调用失败: {error_type}")
+                                raise
 
                     if os.path.exists(cosy_output_path):
                         cosy_voice_path = cosy_output_path
@@ -245,7 +289,23 @@ def process_character_voice_cloning(
                     else:
                         logger.error("❌ [步骤2] CosyVoice V3 克隆失败: 输出文件不存在")
             except Exception as e:
-                logger.error(f"❌ [步骤2] CosyVoice V3 克隆异常: {str(e)}", exc_info=True)
+                error_type = type(e).__name__
+                error_msg = str(e)
+                logger.error("❌ [步骤2] CosyVoice V3 克隆异常")
+                logger.error(f"   异常类型: {error_type}")
+                logger.error(f"   错误信息: {error_msg}")
+                
+                # 如果是 WebSocket 连接问题，记录更详细的诊断信息
+                if "websocket" in error_msg.lower() or "connection" in error_msg.lower():
+                    logger.error("   诊断信息:")
+                    logger.error("   - 检查网络连接是否正常")
+                    logger.error("   - 检查防火墙是否阻止 WebSocket 连接")
+                    logger.error("   - 检查代理配置是否正确")
+                    logger.error("   - 检查 PUBLIC_BASE_URL 是否可访问")
+                    logger.error(f"   - 音频URL: {audio_url}")
+                
+                logger.error("   将跳过步骤2，直接使用降噪音频进行步骤3")
+                logger.error("", exc_info=True)
                 cosy_voice_path = None
         else:
             logger.warning("⚠️ [步骤2] 降噪音频不可用，跳过 CosyVoice V3 处理")
