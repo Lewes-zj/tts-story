@@ -11,14 +11,14 @@ logger = logging.getLogger(__name__)
 class UserInputAudioDAO(BaseDAO):
     """用户输入音频数据访问对象"""
 
-    def insert(self, user_id: int, role_id: int, init_input: str, clean_input: Optional[str] = None) -> int:
+    def insert(self, user_id: int, role_id: int, init_input: str, clean_input: Optional[str] = None, cosy_voice: Optional[str] = None, tts_voice: Optional[str] = None) -> int:
         """插入用户输入音频记录"""
         conn = self._get_db_connection()
         try:
             with conn.cursor() as cursor:
-                sql = """INSERT INTO user_input_audio (user_id, role_id, init_input, clean_input)
-                         VALUES (%s, %s, %s, %s)"""
-                cursor.execute(sql, (user_id, role_id, init_input, clean_input))
+                sql = """INSERT INTO user_input_audio (user_id, role_id, init_input, clean_input, cosy_voice, tts_voice)
+                         VALUES (%s, %s, %s, %s, %s, %s)"""
+                cursor.execute(sql, (user_id, role_id, init_input, clean_input, cosy_voice, tts_voice))
                 conn.commit()
                 return cursor.lastrowid
         finally:
@@ -49,6 +49,38 @@ class UserInputAudioDAO(BaseDAO):
                          ORDER BY id DESC
                          LIMIT 1"""
                 cursor.execute(sql, (clean_input, user_id, role_id))
+                conn.commit()
+                return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def update_cosy_voice(self, user_id: int, role_id: int, cosy_voice: str) -> bool:
+        """更新用户输入音频的 cosy_voice 字段"""
+        conn = self._get_db_connection()
+        try:
+            with conn.cursor() as cursor:
+                sql = """UPDATE user_input_audio 
+                         SET cosy_voice = %s
+                         WHERE user_id = %s AND role_id = %s
+                         ORDER BY id DESC
+                         LIMIT 1"""
+                cursor.execute(sql, (cosy_voice, user_id, role_id))
+                conn.commit()
+                return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def update_tts_voice(self, user_id: int, role_id: int, tts_voice: str) -> bool:
+        """更新用户输入音频的 tts_voice 字段"""
+        conn = self._get_db_connection()
+        try:
+            with conn.cursor() as cursor:
+                sql = """UPDATE user_input_audio 
+                         SET tts_voice = %s
+                         WHERE user_id = %s AND role_id = %s
+                         ORDER BY id DESC
+                         LIMIT 1"""
+                cursor.execute(sql, (tts_voice, user_id, role_id))
                 conn.commit()
                 return cursor.rowcount > 0
         finally:

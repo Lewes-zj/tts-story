@@ -401,6 +401,8 @@ CREATE TABLE `user_input_audio`  (
   `role_id` bigint(20) NOT NULL COMMENT '角色ID',
   `init_input` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '用户初始录音音频',
   `clean_input` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '用户降噪后纯净人声录音',
+  `cosy_voice` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'CosyVoice 音频文件路径',
+  `tts_voice` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'TTS 音频文件路径',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_uid_rid`(`user_id`, `role_id`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;

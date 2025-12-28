@@ -5,12 +5,14 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 import os
 import logging
+import shutil
 from scripts.character_dao import CharacterDAO
 from scripts.user_input_audio_dao import UserInputAudioDAO
 from scripts.file_dao import FileDAO
 from scripts.auth_api import get_current_user
 from scripts.audio_processor import process_audio_with_deepfilternet_denoiser
 from scripts.auto_voice_cloner import AutoVoiceCloner
+from scripts.cosyvoice_v3 import CosyVoiceV3
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,8 @@ class CharacterAudioResponse(BaseModel):
 
     clean_input_audio: Optional[str] = None
     init_input: Optional[str] = None
+    cosy_voice: Optional[str] = None
+    tts_voice: Optional[str] = None
 
 
 @router.post("", response_model=CharacterResponse)
@@ -70,6 +74,11 @@ async def create_character(
                 file_id = int(request.fileId)
                 file_record = file_dao.find_by_id(file_id)
                 if file_record:
+                    # 创建用户专属目录: outputs/{user_id}/{role_id}/
+                    user_role_dir = os.path.join(OUTPUTS_DIR, str(user_id), str(role_id))
+                    os.makedirs(user_role_dir, exist_ok=True)
+                    logger.info(f"创建用户角色目录: {user_role_dir}")
+
                     # 获取文件名（应该已经是wav格式，因为上传时已转换）
                     file_name = file_record.get("file_name", "")
 
@@ -87,41 +96,119 @@ async def create_character(
                     if not file_name.endswith(".wav"):
                         file_name = f"{os.path.splitext(file_name)[0]}.wav"
 
-                    # 构建完整的文件路径（存储在outputs目录下，与audio_tts.py保持一致）
-                    # 使用绝对路径，确保音频处理脚本能找到文件
-                    init_input = os.path.join(OUTPUTS_DIR, file_name)
+                    # 构建完整的文件路径（存储在outputs/{user_id}/{role_id}/目录下）
+                    init_input = os.path.join(user_role_dir, file_name)
                     init_input = os.path.abspath(init_input)
+
+                    # 如果原始文件不在目标目录，需要移动或复制
+                    original_file_path = os.path.join(OUTPUTS_DIR, file_name)
+                    if os.path.exists(original_file_path) and original_file_path != init_input:
+                        # 如果目标文件已存在，先删除
+                        if os.path.exists(init_input):
+                            os.remove(init_input)
+                        shutil.move(original_file_path, init_input)
+                        logger.info(f"已移动文件到用户目录: {init_input}")
 
                     # 验证文件是否存在
                     if not os.path.exists(init_input):
                         logger.warning(
                             f"音频文件不存在: {init_input}，但仍保存记录到数据库"
                         )
-                        clean_input = None
+                        # 插入记录，所有音频字段为 None
+                        user_input_audio_dao.insert(
+                            user_id=user_id,
+                            role_id=role_id,
+                            init_input=init_input,
+                            clean_input=None,
+                            cosy_voice=None,
+                            tts_voice=None,
+                        )
                     else:
                         # 步骤1: 使用 DeepFilterNet -> Denoiser 处理音频
                         logger.info(f"步骤1: 开始降噪处理音频: {init_input}")
-                        denoised_audio = None
+                        clean_input_path = None
                         try:
-                            denoised_audio = process_audio_with_deepfilternet_denoiser(
+                            # 指定输出路径到用户目录
+                            base_name = os.path.splitext(file_name)[0]
+                            clean_output_path = os.path.join(
+                                user_role_dir, f"{base_name}_clean.wav"
+                            )
+                            clean_output_path = os.path.abspath(clean_output_path)
+
+                            clean_input_path = process_audio_with_deepfilternet_denoiser(
                                 input_path=init_input,
+                                output_path=clean_output_path,
                                 device=None,  # 自动选择设备
                             )
-                            if denoised_audio:
+                            if clean_input_path:
                                 # 确保路径是绝对路径
-                                denoised_audio = os.path.abspath(denoised_audio)
-                                logger.info(f"音频降噪成功: {denoised_audio}")
+                                clean_input_path = os.path.abspath(clean_input_path)
+                                logger.info(f"音频降噪成功: {clean_input_path}")
                             else:
                                 logger.warning("音频降噪失败，跳过后续克隆步骤")
                         except Exception as e:
                             logger.error(f"音频降噪异常: {str(e)}")
-                            denoised_audio = None
+                            clean_input_path = None
 
-                        # 步骤2: 使用降噪后的音频进行声音克隆（情绪音频引导模式）
-                        clean_input = None
-                        if denoised_audio and os.path.exists(denoised_audio):
+                        # 固定文本（用于 CosyVoice 和 AutoVoiceCloner）
+                        fixed_text = "小朋友们大家好，这是一段黄金母本的音频，这段音频的主要目的呀，是为后续的所有音频克隆提供一段完美的音频输入"
+
+                        # 步骤2: 使用 CosyVoice V3 进行声音克隆（新增）
+                        cosy_voice_path = None
+                        if clean_input_path and os.path.exists(clean_input_path):
                             logger.info(
-                                f"步骤2: 开始声音克隆，input_audio={denoised_audio}"
+                                f"步骤2: 开始 CosyVoice V3 克隆，input_audio={clean_input_path}"
+                            )
+                            try:
+                                # 获取公网基础URL
+                                public_base_url = os.getenv("PUBLIC_BASE_URL")
+                                if not public_base_url:
+                                    logger.warning(
+                                        "PUBLIC_BASE_URL 未配置，跳过 CosyVoice V3 处理"
+                                    )
+                                else:
+                                    # 构建公网可访问的音频URL
+                                    # 路径格式: /outputs/{user_id}/{role_id}/{文件名}
+                                    clean_file_name = os.path.basename(clean_input_path)
+                                    audio_url = f"{public_base_url.rstrip('/')}/outputs/{user_id}/{role_id}/{clean_file_name}"
+                                    logger.info(f"CosyVoice 音频URL: {audio_url}")
+
+                                    # 指定输出路径
+                                    cosy_output_path = os.path.join(
+                                        user_role_dir, f"{base_name}_cosyvoice.mp3"
+                                    )
+                                    cosy_output_path = os.path.abspath(cosy_output_path)
+
+                                    # 初始化 CosyVoiceV3 客户端
+                                    cosy_voice_client = CosyVoiceV3()
+
+                                    # 执行 CosyVoice V3 克隆
+                                    cosy_voice_client.synthesize(
+                                        audio_url=audio_url,
+                                        text_to_synthesize=fixed_text,
+                                        output_file=cosy_output_path,
+                                    )
+
+                                    # 验证输出文件是否存在
+                                    if os.path.exists(cosy_output_path):
+                                        cosy_voice_path = cosy_output_path
+                                        logger.info(f"CosyVoice V3 克隆成功: {cosy_voice_path}")
+                                    else:
+                                        logger.warning("CosyVoice V3 克隆失败，输出文件不存在")
+                            except Exception as e:
+                                logger.error(f"CosyVoice V3 克隆异常: {str(e)}")
+                                cosy_voice_path = None
+                        else:
+                            logger.warning("降噪音频不可用，跳过 CosyVoice V3 处理")
+
+                        # 步骤3: 使用 AutoVoiceCloner 进行最终声音克隆
+                        tts_voice_path = None
+                        # 优先使用 cosy_voice_path，如果不存在则使用 clean_input_path
+                        input_for_cloning = cosy_voice_path if cosy_voice_path and os.path.exists(cosy_voice_path) else clean_input_path
+
+                        if input_for_cloning and os.path.exists(input_for_cloning):
+                            logger.info(
+                                f"步骤3: 开始 AutoVoiceCloner 克隆，input_audio={input_for_cloning}"
                             )
                             try:
                                 # 验证 Golden Master Prompt 文件是否存在
@@ -129,18 +216,18 @@ async def create_character(
                                     logger.error(
                                         f"Golden Master Prompt 文件不存在: {GOLDEN_MASTER_PROMPT}"
                                     )
-                                    clean_input = denoised_audio  # 降级为使用降噪音频
+                                    tts_voice_path = None
                                 else:
-                                    # 初始化 AutoVoiceCloner
+                                    # 初始化 AutoVoiceCloner，指定输出目录为用户目录
                                     voice_cloner = AutoVoiceCloner(
-                                        output_dir=OUTPUTS_DIR
+                                        output_dir=user_role_dir
                                     )
 
                                     # 执行单条克隆（使用情绪音频引导模式）
                                     clone_result = voice_cloner.run_cloning(
-                                        input_audio=denoised_audio,  # 纯净人声音频作为音色参考
+                                        input_audio=input_for_cloning,  # 优先使用 CosyVoice 结果，否则使用降噪音频
                                         emo_audio=GOLDEN_MASTER_PROMPT,  # Golden Master Prompt 作为情感引导
-                                        emo_text="小朋友们大家好，这是一段黄金母本的音频，这段音频的主要目的呀，是为后续的所有音频克隆提供一段完美的音频输入",  # 默认文本
+                                        emo_text=fixed_text,  # 默认文本
                                     )
 
                                     # 检查克隆是否成功
@@ -151,40 +238,37 @@ async def create_character(
                                             "output_path"
                                         )
                                         if cloned_path and os.path.exists(cloned_path):
-                                            clean_input = os.path.abspath(cloned_path)
-                                            logger.info(f"声音克隆成功: {clean_input}")
+                                            tts_voice_path = os.path.abspath(cloned_path)
+                                            logger.info(f"AutoVoiceCloner 克隆成功: {tts_voice_path}")
                                         else:
-                                            logger.warning(
-                                                "声音克隆失败，使用降噪音频作为 clean_input"
-                                            )
-                                            clean_input = denoised_audio
+                                            logger.warning("AutoVoiceCloner 克隆失败，输出文件不存在")
                                     else:
                                         error_msg = clone_result.get("results", [{}])[
                                             0
                                         ].get("error", "未知错误")
                                         logger.warning(
-                                            f"声音克隆失败: {error_msg}，使用降噪音频作为 clean_input"
+                                            f"AutoVoiceCloner 克隆失败: {error_msg}"
                                         )
-                                        clean_input = denoised_audio
                             except Exception as e:
-                                logger.error(
-                                    f"声音克隆异常: {str(e)}，使用降噪音频作为 clean_input"
-                                )
-                                clean_input = denoised_audio
+                                logger.error(f"AutoVoiceCloner 克隆异常: {str(e)}")
+                                tts_voice_path = None
                         else:
-                            logger.warning("降噪音频不可用，clean_input 将为 None")
-                            clean_input = None
+                            logger.warning("输入音频不可用，跳过 AutoVoiceCloner 处理")
 
-                    # 先插入记录（clean_input 可能为 None，后续可以异步更新）
-                    user_input_audio_dao.insert(
-                        user_id=user_id,
-                        role_id=role_id,
-                        init_input=init_input,
-                        clean_input=clean_input,
-                    )
-                    logger.info(
-                        f"已保存录音到user_input_audio表: user_id={user_id}, role_id={role_id}, file_id={file_id}, file_path={init_input}, clean_input={clean_input}"
-                    )
+                        # 插入记录，包含所有4个音频路径
+                        user_input_audio_dao.insert(
+                            user_id=user_id,
+                            role_id=role_id,
+                            init_input=init_input,
+                            clean_input=clean_input_path,
+                            cosy_voice=cosy_voice_path,
+                            tts_voice=tts_voice_path,
+                        )
+                        logger.info(
+                            f"已保存录音到user_input_audio表: user_id={user_id}, role_id={role_id}, "
+                            f"file_id={file_id}, init_input={init_input}, clean_input={clean_input_path}, "
+                            f"cosy_voice={cosy_voice_path}, tts_voice={tts_voice_path}"
+                        )
             except (ValueError, Exception) as e:
                 logger.warning(f"保存录音到user_input_audio表失败: {str(e)}")
                 # 即使保存失败，也不影响角色创建
@@ -251,11 +335,18 @@ async def get_character_audio(
         audio_info = user_input_audio_dao.find_by_user_and_role(user_id, character_id)
 
         if not audio_info:
-            return CharacterAudioResponse(clean_input_audio=None, init_input=None)
+            return CharacterAudioResponse(
+                clean_input_audio=None,
+                init_input=None,
+                cosy_voice=None,
+                tts_voice=None,
+            )
 
         return CharacterAudioResponse(
             clean_input_audio=audio_info.get("clean_input"),
             init_input=audio_info.get("init_input"),
+            cosy_voice=audio_info.get("cosy_voice"),
+            tts_voice=audio_info.get("tts_voice"),
         )
     except HTTPException:
         raise

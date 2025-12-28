@@ -85,20 +85,23 @@ class BusinessGenerateService:
         """
         从数据库查询用户的克隆声音文件路径
 
+        优先级：tts_voice > cosy_voice > 不允许生成
+
         Args:
             user_id: 用户ID
             role_id: 角色ID
 
         Returns:
-            音频文件路径 (clean_input字段)
+            音频文件路径（优先使用 tts_voice，其次 cosy_voice）
 
         Raises:
             ImportError: 无法导入DAO
-            ValueError: 未找到用户音频记录
+            ValueError: 未找到用户音频记录或音频文件路径不存在
         """
         try:
             # 动态导入DAO，避免循环依赖
             import sys
+            import os
 
             scripts_path = str(self.project_root / "scripts")
             if scripts_path not in sys.path:
@@ -111,23 +114,39 @@ class BusinessGenerateService:
             record = dao.find_by_user_and_role(user_id, role_id)
 
             if not record:
-                error_msg = "请先生成您的克隆声音"
+                error_msg = "请先完善角色音频录制"
                 logger.error(
                     f"用户输入音频记录为空: user_id={user_id}, role_id={role_id}"
                 )
                 raise ValueError(error_msg)
 
-            # 仅使用clean_input字段
-            audio_path = record.get("clean_input")
+            # 优先级：tts_voice > cosy_voice
+            audio_path = None
+            field_used = None
 
-            if not audio_path:
-                error_msg = "音频文件路径不存在，请重新生成克隆声音"
-                logger.error(
-                    f"clean_input字段为空: user_id={user_id}, role_id={role_id}"
-                )
-                raise ValueError(error_msg)
+            # 优先使用 tts_voice 字段
+            tts_voice = record.get("tts_voice")
+            if tts_voice and os.path.exists(tts_voice):
+                audio_path = tts_voice
+                field_used = "tts_voice"
+                logger.info(f"使用 tts_voice 字段: {audio_path}")
+            else:
+                # 降级使用 cosy_voice 字段
+                cosy_voice = record.get("cosy_voice")
+                if cosy_voice and os.path.exists(cosy_voice):
+                    audio_path = cosy_voice
+                    field_used = "cosy_voice"
+                    logger.info(f"使用 cosy_voice 字段: {audio_path}")
+                else:
+                    # 如果都没有值，不允许生成
+                    error_msg = "角色音频录制不完整，请先完善角色音频录制后再生成"
+                    logger.error(
+                        f"用户音频路径不存在: user_id={user_id}, role_id={role_id}, "
+                        f"tts_voice={tts_voice}, cosy_voice={cosy_voice}"
+                    )
+                    raise ValueError(error_msg)
 
-            logger.info(f"成功获取用户音频路径: {audio_path}")
+            logger.info(f"成功获取用户音频路径 ({field_used}): {audio_path}")
             return audio_path
 
         except ImportError as e:

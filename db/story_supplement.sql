@@ -54,3 +54,13 @@ CREATE TABLE `file`  (
   INDEX `idx_file_type`(`file_type`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '文件表' ROW_FORMAT = Dynamic;
 
+-- ----------------------------
+-- 修改user_input_audio表，添加cosy_voice字段
+-- ----------------------------
+ALTER TABLE `user_input_audio` ADD COLUMN `cosy_voice` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'CosyVoice 音频文件路径' AFTER `clean_input`;
+
+-- ----------------------------
+-- 修改user_input_audio表，添加tts_voice字段
+-- ----------------------------
+ALTER TABLE `user_input_audio` ADD COLUMN `tts_voice` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'TTS 音频文件路径' AFTER `cosy_voice`;
+

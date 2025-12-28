@@ -1,3 +1,9 @@
+#!/usr/bin/env python3.10
+"""
+CosyVoice V3 语音合成脚本
+使用 Python 3.10 运行
+"""
+
 import os
 import time
 import argparse
