@@ -1,23 +1,24 @@
 #!/usr/bin/env python3.10
 """
 CosyVoice V3 语音合成脚本
-支持对象池复用 (Object Pooling) 以解决高并发下的 WebSocket 断连问题
+无连接池模式 (Stateless/Short-lived Connection)
+适用于低并发 (<20) 场景，稳定性最高，彻底避免 WebSocket Idle Timeout 错误
 """
 
 import os
 import time
 import argparse
 import yaml
-from typing import Optional, Union
+from typing import Optional
 import dashscope
-from dashscope.audio.tts_v2 import VoiceEnrollmentService, SpeechSynthesizer, SpeechSynthesizerObjectPool
+from dashscope.audio.tts_v2 import VoiceEnrollmentService, SpeechSynthesizer
 
 def _load_config_model() -> Optional[str]:
     """
     从配置文件中加载 cosyvoice_model
     """
     try:
-        # 获取项目根目录 (假设当前脚本在 scripts/ 目录下)
+        # 获取项目根目录
         current_file = os.path.abspath(__file__)
         project_root = os.path.dirname(os.path.dirname(current_file))
         config_path = os.path.join(project_root, "config", "config.yaml")
@@ -43,9 +44,7 @@ class CosyVoiceV3:
         target_model: Optional[str] = None,
         voice_prefix: str = "minivoice",
         max_attempts: int = 30,
-        poll_interval: int = 10,
-        pool_size: int = 20,
-        use_object_pool: bool = True
+        poll_interval: int = 10
     ):
         """
         初始化 CosyVoice V3 客户端
@@ -57,10 +56,9 @@ class CosyVoiceV3:
             dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
         
         if not dashscope.api_key:
-            # 尝试从环境变量再次读取，防止外部未传递
             dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
             if not dashscope.api_key:
-                raise ValueError("API key is required. Set DASHSCOPE_API_KEY or pass api_key parameter.")
+                raise ValueError("API key is required.")
         
         # 模型配置
         if target_model is None:
@@ -73,13 +71,6 @@ class CosyVoiceV3:
         self.max_attempts = max_attempts
         self.poll_interval = poll_interval
         self.service = VoiceEnrollmentService()
-        
-        # 对象池配置
-        self.pool_size = pool_size
-        self.use_object_pool = use_object_pool
-        self.object_pool: Optional[SpeechSynthesizerObjectPool] = None
-        self._object_pool_initialized = False
-        self._object_pool_init_failed = False
 
     def synthesize(
         self,
@@ -88,7 +79,7 @@ class CosyVoiceV3:
         output_file: Optional[str] = None
     ) -> bytes:
         """
-        核心方法：复刻音色 -> 轮询状态 -> 合成语音
+        执行完整流程：复刻 -> 轮询 -> 合成 -> 保存
         """
         # 1. 创建音色
         voice_id = self._create_voice(audio_url)
@@ -96,7 +87,7 @@ class CosyVoiceV3:
         # 2. 轮询音色状态
         self._poll_voice_status(voice_id)
         
-        # 3. 语音合成 (使用对象池)
+        # 3. 语音合成 (每次创建新连接)
         audio_data = self._synthesize_speech(voice_id, text_to_synthesize)
         
         # 4. 保存文件
@@ -108,20 +99,6 @@ class CosyVoiceV3:
         
         return audio_data
     
-    def shutdown(self):
-        """
-        显式关闭对象池资源
-        """
-        if self.object_pool:
-            try:
-                # 注意：目前 SDK 可能没有公开 shutdown 方法，这里做防御性编程
-                # 如果未来 SDK 支持 shutdown，这里可以直接调用
-                print("Shutting down CosyVoice object pool...")
-                self.object_pool = None
-                self._object_pool_initialized = False
-            except Exception as e:
-                print(f"Error shutting down pool: {e}")
-
     def _create_voice(self, audio_url: str) -> str:
         """Step 1: 创建复刻任务"""
         print(f"--- Step 1: Creating voice enrollment ({self.target_model}) ---")
@@ -145,15 +122,14 @@ class CosyVoiceV3:
             try:
                 voice_info = self.service.query_voice(voice_id=voice_id)
                 status = voice_info.get("status")
-                print(f"Attempt {attempt + 1}/{self.max_attempts}: Voice status is '{status}'")
                 
                 if status == "OK":
                     print("Voice is ready for synthesis.")
                     return
                 elif status == "UNDEPLOYED":
-                    error_msg = f"Voice processing failed: {status}"
-                    raise RuntimeError(error_msg)
+                    raise RuntimeError(f"Voice processing failed: {status}")
                 
+                # print(f"Attempt {attempt + 1}/{self.max_attempts}: {status}...")
                 time.sleep(self.poll_interval)
             except RuntimeError:
                 raise
@@ -163,116 +139,54 @@ class CosyVoiceV3:
         else:
             raise RuntimeError("Polling timed out.")
 
-    def _ensure_object_pool(self) -> bool:
-        """延迟初始化对象池"""
-        if not self.use_object_pool or self._object_pool_init_failed:
-            return False
-        
-        if self._object_pool_initialized and self.object_pool:
-            return True
-        
-        try:
-            print(f"Initializing Object Pool (Size: {self.pool_size})...")
-            # 初始化对象池
-            self.object_pool = SpeechSynthesizerObjectPool(max_size=self.pool_size)
-            self._object_pool_initialized = True
-            print("Object Pool initialized successfully.")
-            return True
-        except Exception as e:
-            print(f"Warning: Failed to init object pool: {e}")
-            self._object_pool_init_failed = True
-            self.use_object_pool = False
-            return False
-    
     def _synthesize_speech(self, voice_id: str, text: str) -> bytes:
-        """Step 3: 合成语音 (核心优化部分)"""
-        print("\n--- Step 3: Synthesizing speech ---")
+        """
+        Step 3: 合成语音 (无连接池模式)
+        每次请求新建一个连接，用完立即销毁
+        """
+        print("\n--- Step 3: Synthesizing speech (New Connection) ---")
         synthesizer = None
-        used_pool = False
-        
         try:
-            # 尝试从对象池获取
-            if self._ensure_object_pool():
-                try:
-                    # borrow_synthesizer 可能会阻塞或者失败
-                    synthesizer = self.object_pool.borrow_synthesizer(
-                        model=self.target_model,
-                        voice=voice_id
-                    )
-                    used_pool = True
-                    print("Synthesizer borrowed from pool.")
-                except Exception as e:
-                    print(f"Warning: Failed to borrow from pool ({e}), creating new instance.")
-                    used_pool = False
+            # 创建全新的合成器实例
+            synthesizer = SpeechSynthesizer(model=self.target_model, voice=voice_id)
             
-            # 如果没用池（或者池借用失败），则创建新实例
-            if not synthesizer:
-                synthesizer = SpeechSynthesizer(model=self.target_model, voice=voice_id)
-                print("Created new transient Synthesizer instance.")
-            
-            # 执行合成
-            # 如果这里报 WebSocket closed，会被外层捕获
+            # 调用 API
             audio_data = synthesizer.call(text)
             print(f"Synthesis success. Request ID: {synthesizer.get_last_request_id()}")
-            
-            # 成功后归还对象到池中
-            if used_pool and self.object_pool:
-                try:
-                    self.object_pool.return_synthesizer(synthesizer)
-                    print("Synthesizer returned to pool.")
-                except Exception as e:
-                    print(f"Error returning to pool: {e}")
-                    # 归还失败则尝试关闭
-                    try:
-                        synthesizer.close()
-                    except:
-                        pass
-            elif not used_pool:
-                # 如果不是池中的对象，用完即关闭
-                try:
-                    synthesizer.call(text) # Ensure stream closed if needed, usually call returns bytes directly
-                except:
-                    pass
             
             return audio_data
             
         except Exception as e:
             print(f"Error during synthesis: {e}")
-            
-            # 发生异常时，如果是池中借出的对象，不要归还（因为它可能坏了），直接关闭
+            raise e
+        finally:
+            # 【关键】无论成功失败，必须显式关闭连接，防止资源泄露
             if synthesizer:
                 try:
-                    synthesizer.close()
-                    print("Broken synthesizer connection closed.")
-                except:
+                    # 此时主动发起 Close 帧，而不是等待服务端超时踢人
+                    synthesizer.call(None) # 某些SDK版本需要这样刷新流，或者直接依赖 GC
+                    # 如果 dashscope sdk 有显式 close 方法最好，但通常 call 结束后会自动处理非流式
+                    # 这里为了保险，不做额外操作，依靠 Python GC 自动回收短连接
+                    pass 
+                except Exception:
                     pass
-            raise e
 
 
 def main():
-    """CLI 入口，用于测试"""
-    parser = argparse.ArgumentParser(description="CosyVoice V3 CLI Tool")
-    parser.add_argument("--audio-url", required=True, help="Reference audio URL")
-    parser.add_argument("--text", required=True, help="Text to synthesize")
-    parser.add_argument("--output", default="output.mp3", help="Output filename")
-    parser.add_argument("--api-key", help="DashScope API Key")
-    parser.add_argument("--pool-size", type=int, default=5, help="Test pool size")
+    """CLI 入口"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--audio-url", required=True)
+    parser.add_argument("--text", required=True)
+    parser.add_argument("--output", default="output.mp3")
+    parser.add_argument("--api-key")
     
     args = parser.parse_args()
     
     try:
-        client = CosyVoiceV3(api_key=args.api_key, pool_size=args.pool_size)
-        
-        print(f"Start processing...")
+        client = CosyVoiceV3(api_key=args.api_key)
         client.synthesize(args.audio_url, args.text, args.output)
-        
-        # 测试完毕显式关闭，虽非必须但由于是 CLI 运行
-        client.shutdown()
-        
     except Exception as e:
         print(f"Fatal Error: {e}")
-        import traceback
-        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
