@@ -527,28 +527,29 @@ async def create_character(
                         )
                         logger.info(f"已保存录音到user_input_audio表: role_id={role_id}")
 
-                        # 如果步骤1成功，将步骤2和步骤3提交到后台任务队列
-                        if clean_input_path and os.path.exists(clean_input_path):
-                            logger.info("-" * 70)
-                            logger.info("🚀 将步骤2和步骤3提交到后台任务队列")
-                            logger.info(f"   角色ID: {role_id}")
-                            logger.info(f"   降噪音频: {clean_input_path}")
-                            logger.info("-" * 70)
-                            
-                            character_clone_executor.submit(
-                                process_character_voice_cloning,
-                                user_id=user_id,
-                                role_id=role_id,
-                                clean_input_path=clean_input_path,
-                                user_role_dir=user_role_dir,
-                                base_name=base_name,
-                                init_input=init_input
-                            )
-                            
-                            logger.info(f"✅ 后台任务已成功提交到线程池: role_id={role_id}")
-                            logger.info("   任务将在后台异步执行步骤2 (CosyVoice V3) 和步骤3 (AutoVoiceCloner)")
-                        else:
-                            logger.warning("⚠️ 步骤1失败，跳过后台任务提交")
+                        # 步骤2和步骤3已移动到生成有声故事书的环节执行
+                        # 不再在创建角色时执行，而是在生成任务时按需执行
+                        # if clean_input_path and os.path.exists(clean_input_path):
+                        #     logger.info("-" * 70)
+                        #     logger.info("🚀 将步骤2和步骤3提交到后台任务队列")
+                        #     logger.info(f"   角色ID: {role_id}")
+                        #     logger.info(f"   降噪音频: {clean_input_path}")
+                        #     logger.info("-" * 70)
+                        #     
+                        #     character_clone_executor.submit(
+                        #         process_character_voice_cloning,
+                        #         user_id=user_id,
+                        #         role_id=role_id,
+                        #         clean_input_path=clean_input_path,
+                        #         user_role_dir=user_role_dir,
+                        #         base_name=base_name,
+                        #         init_input=init_input
+                        #     )
+                        #     
+                        #     logger.info(f"✅ 后台任务已成功提交到线程池: role_id={role_id}")
+                        #     logger.info("   任务将在后台异步执行步骤2 (CosyVoice V3) 和步骤3 (AutoVoiceCloner)")
+                        # else:
+                        #     logger.warning("⚠️ 步骤1失败，跳过后台任务提交")
             except (ValueError, Exception) as e:
                 logger.warning(f"保存录音到user_input_audio表失败: {str(e)}")
 

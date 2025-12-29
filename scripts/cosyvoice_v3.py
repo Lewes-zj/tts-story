@@ -19,7 +19,7 @@ class CosyVoiceV3:
         self,
         api_key: Optional[str] = None,
         target_model: str = "cosyvoice-v3-plus",
-        voice_prefix: str = "lxvoice",
+        voice_prefix: str = "minivoice",
         max_attempts: int = 30,
         poll_interval: int = 10,
         pool_size: int = 20,
@@ -31,7 +31,7 @@ class CosyVoiceV3:
         Args:
             api_key: DashScope API Key，如果不提供则从环境变量 DASHSCOPE_API_KEY 读取
             target_model: 目标模型名称，默认为 "cosyvoice-v3-plus"
-            voice_prefix: 音色前缀，仅允许数字和小写字母，小于十个字符，默认为 "lxvoice"
+            voice_prefix: 音色前缀，仅允许数字和小写字母，小于十个字符，默认为 "minivoice"
             max_attempts: 轮询最大尝试次数，默认为 30
             poll_interval: 轮询间隔（秒），默认为 10
             pool_size: 对象池大小，默认为 20（建议设置为峰值并发数的 1.5 至 2 倍）
