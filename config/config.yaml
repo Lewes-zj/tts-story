@@ -1,0 +1,7 @@
+character_audio_clone:
+  # cosyvoice模型名称
+  cosyvoice_model: "cosyvoice-v3-plus"
+  # 是否使用index-tts2, 将cosyvoice复刻的音频，再进行情绪引导音频克隆（即：步骤4️）
+  tts2: false
+  # 克隆文本
+  clone_text: "小朋友们大家好，这是一段黄金母本的音频，这段音频的主要目的呀，是为后续的所有音频克隆提供一段完美的音频输入。"

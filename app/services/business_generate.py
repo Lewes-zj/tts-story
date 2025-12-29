@@ -8,7 +8,8 @@ import json
 import logging
 import os
 import time
-from typing import Dict, Any, Optional
+import yaml
+from typing import Dict, Any
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,42 @@ class BusinessGenerateService:
         self.project_root = Path(__file__).parent.parent.parent
         self.config_dir = self.project_root / "config"
         logger.info(f"业务生成服务初始化完成，配置目录: {self.config_dir}")
+    
+    def _load_character_audio_clone_config(self) -> Dict[str, Any]:
+        """
+        从配置文件中加载角色音频克隆配置
+        
+        Returns:
+            配置字典，包含 clone_text, tts2, cosyvoice_model 等配置项
+        """
+        config_path = self.config_dir / "config.yaml"
+        default_config = {
+            "clone_text": "小朋友们大家好，这是一段黄金母本的音频，这段音频的主要目的呀，是为后续的所有音频克隆提供一段完美的音频输入。",
+            "tts2": True,
+            "cosyvoice_model": "cosyvoice-v3-plus"
+        }
+        
+        if not config_path.exists():
+            logger.warning(f"配置文件不存在: {config_path}，使用默认配置")
+            return default_config
+        
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            
+            if config and "character_audio_clone" in config:
+                clone_config = config["character_audio_clone"]
+                return {
+                    "clone_text": clone_config.get("clone_text", default_config["clone_text"]),
+                    "tts2": clone_config.get("tts2", default_config["tts2"]),
+                    "cosyvoice_model": clone_config.get("cosyvoice_model", default_config["cosyvoice_model"])
+                }
+            else:
+                logger.warning("配置文件中未找到 character_audio_clone 配置项，使用默认配置")
+                return default_config
+        except Exception as e:
+            logger.warning(f"读取配置文件失败: {e}，使用默认配置")
+            return default_config
 
     def get_story_config(self, story_id: int) -> Dict[str, Any]:
         """
@@ -120,7 +157,12 @@ class BusinessGenerateService:
             logger.info(f"   工作目录: {user_role_dir}")
             logger.info("=" * 70)
             
-            fixed_text = "小朋友们大家好，这是一段黄金母本的音频，这段音频的主要目的呀，是为后续的所有音频克隆提供一段完美的音频输入"
+            # 从配置文件读取克隆文本
+            clone_config = self._load_character_audio_clone_config()
+            fixed_text = clone_config["clone_text"]
+            use_tts2 = clone_config["tts2"]
+            logger.info(f"📋 克隆文本（从配置文件读取）: {fixed_text}")
+            logger.info(f"📋 TTS2 配置（从配置文件读取）: {use_tts2}")
             
             # Golden Master Prompt 音频路径
             golden_master_prompt = self.project_root / "prompt" / "golden_master_prompt.MP3"
@@ -147,9 +189,9 @@ class BusinessGenerateService:
                         logger.info(f"✓ PUBLIC_BASE_URL 已配置: {public_base_url}")
                         
                         # 等待一段时间，确保文件系统完全同步
-                        logger.info("⏳ 等待文件系统完全同步（10秒）...")
-                        time.sleep(10.0)
-                        logger.info("✓ 文件系统同步等待完成")
+                        # logger.info("⏳ 等待文件系统完全同步（10秒）...")
+                        # time.sleep(10.0)
+                        # logger.info("✓ 文件系统同步等待完成")
                         
                         clean_file_name = os.path.basename(clean_input_path)
                         audio_url = f"{public_base_url.rstrip('/')}/outputs/{user_id}/{role_id}/{clean_file_name}"
@@ -223,15 +265,32 @@ class BusinessGenerateService:
                 logger.warning("⚠️ [步骤2] 降噪音频不可用，跳过 CosyVoice V3 处理")
 
             # 步骤3: 使用 AutoVoiceCloner 进行最终声音克隆
-            logger.info("-" * 70)
-            logger.info("📝 [步骤3] 开始 AutoVoiceCloner 最终声音克隆")
-            logger.info("-" * 70)
+            # 判断是否需要执行步骤3：
+            # 1. 如果配置文件中 tts2 为 true，则执行步骤3
+            # 2. 如果 CosyVoice V3 失败（cosy_voice_path 为 None），无论配置如何都要执行步骤3作为兜底
+            cosy_voice_failed = cosy_voice_path is None or not os.path.exists(cosy_voice_path)
+            should_run_tts2 = use_tts2 or cosy_voice_failed
             
-            input_for_cloning = cosy_voice_path if cosy_voice_path and os.path.exists(cosy_voice_path) else clean_input_path
-            logger.info(f"📥 选择输入音频: {input_for_cloning}")
-            logger.info(f"   来源: {'CosyVoice V3 输出' if cosy_voice_path and os.path.exists(cosy_voice_path) else '降噪音频'}")
+            if should_run_tts2:
+                logger.info("-" * 70)
+                logger.info("📝 [步骤3] 开始 AutoVoiceCloner 最终声音克隆")
+                if cosy_voice_failed:
+                    logger.info("   原因: CosyVoice V3 失败，使用 AutoVoiceCloner 作为兜底")
+                else:
+                    logger.info(f"   原因: 配置文件 tts2={use_tts2}")
+                logger.info("-" * 70)
+            else:
+                logger.info("-" * 70)
+                logger.info("📝 [步骤3] 跳过 AutoVoiceCloner 最终声音克隆")
+                logger.info(f"   原因: 配置文件 tts2={use_tts2}，且 CosyVoice V3 成功")
+                logger.info("-" * 70)
+            
+            if should_run_tts2:
+                input_for_cloning = cosy_voice_path if cosy_voice_path and os.path.exists(cosy_voice_path) else clean_input_path
+                logger.info(f"📥 选择输入音频: {input_for_cloning}")
+                logger.info(f"   来源: {'CosyVoice V3 输出' if cosy_voice_path and os.path.exists(cosy_voice_path) else '降噪音频'}")
 
-            if input_for_cloning and os.path.exists(input_for_cloning):
+            if should_run_tts2 and input_for_cloning and os.path.exists(input_for_cloning):
                 logger.info(f"✓ 输入音频文件存在: {input_for_cloning}")
                 input_size = os.path.getsize(input_for_cloning)
                 logger.info(f"  文件大小: {input_size} bytes")
@@ -277,7 +336,7 @@ class BusinessGenerateService:
                 except Exception as e:
                     logger.error(f"❌ [步骤3] AutoVoiceCloner 克隆异常: {str(e)}", exc_info=True)
                     tts_voice_path = None
-            else:
+            elif should_run_tts2:
                 logger.warning("⚠️ [步骤3] 输入音频不可用，跳过 AutoVoiceCloner 处理")
             
             # 任务完成总结
@@ -446,7 +505,7 @@ class BusinessGenerateService:
         # 1. 读取故事配置
         try:
             config = self.get_story_config(story_id)
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             raise FileNotFoundError("未找到故事配置")
         except ValueError as e:
             raise ValueError(f"配置文件错误: {str(e)}")

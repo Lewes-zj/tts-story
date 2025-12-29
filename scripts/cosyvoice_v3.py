@@ -8,8 +8,35 @@ import os
 import time
 import argparse
 from typing import Optional
+import yaml
 import dashscope
 from dashscope.audio.tts_v2 import VoiceEnrollmentService, SpeechSynthesizer, SpeechSynthesizerObjectPool
+
+
+def _load_config_model() -> Optional[str]:
+    """
+    从配置文件中加载 cosyvoice_model
+    
+    Returns:
+        模型名称，如果配置文件不存在或配置项不存在则返回 None
+    """
+    try:
+        # 获取项目根目录
+        current_file = os.path.abspath(__file__)
+        project_root = os.path.dirname(os.path.dirname(current_file))
+        config_path = os.path.join(project_root, "config", "config.yaml")
+        
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+                if config and "character_audio_clone" in config:
+                    model = config["character_audio_clone"].get("cosyvoice_model")
+                    if model:
+                        return model
+    except Exception:
+        # 如果读取配置文件失败，返回 None，使用默认值
+        pass
+    return None
 
 
 class CosyVoiceV3:
@@ -18,7 +45,7 @@ class CosyVoiceV3:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        target_model: str = "cosyvoice-v3-plus",
+        target_model: Optional[str] = None,
         voice_prefix: str = "minivoice",
         max_attempts: int = 30,
         poll_interval: int = 10,
@@ -30,7 +57,7 @@ class CosyVoiceV3:
         
         Args:
             api_key: DashScope API Key，如果不提供则从环境变量 DASHSCOPE_API_KEY 读取
-            target_model: 目标模型名称，默认为 "cosyvoice-v3-plus"
+            target_model: 目标模型名称，如果不提供则从配置文件读取，配置文件不存在则使用默认值 "cosyvoice-v3-plus"
             voice_prefix: 音色前缀，仅允许数字和小写字母，小于十个字符，默认为 "minivoice"
             max_attempts: 轮询最大尝试次数，默认为 30
             poll_interval: 轮询间隔（秒），默认为 10
@@ -46,7 +73,12 @@ class CosyVoiceV3:
         if not dashscope.api_key:
             raise ValueError("API key is required. Set DASHSCOPE_API_KEY environment variable or pass api_key parameter.")
         
-        self.target_model = target_model
+        # 从配置文件读取模型名称，如果未提供 target_model 参数
+        if target_model is None:
+            config_model = _load_config_model()
+            self.target_model = config_model if config_model else "cosyvoice-v3-plus"
+        else:
+            self.target_model = target_model
         self.voice_prefix = voice_prefix
         self.max_attempts = max_attempts
         self.poll_interval = poll_interval
